@@ -9,7 +9,7 @@ resource "horizon_certificate" "test" {
   subject {
     element = "CN"
     type    = "CN"
-    value   = "TestTerraform16"
+    value   = "TestTerraformFill4"
   }
   sans {
     element = "DNSNAME"
@@ -47,12 +47,12 @@ resource "horizon_certificate" "test2" {
   subject {
     element = "CN"
     type    = "CN"
-    value   = "TestTerraformFill"
+    value   = "TestTerraformFill5"
   }
   sans {
     element = "DNSNAME"
     type    = "DNSNAME"
-    value   = "TestTerraformFill"
+    value   = "TestTerraformFill5"
   }
   labels {
     label   = "business_units"
