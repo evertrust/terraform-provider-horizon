@@ -1,1 +1,7 @@
-./.terraform
+.terraform/*
+.terraform.lock.hcl
+terraform-provider-horizon
+terraform.tfstate.backup
+terraform.tfstate
+go.mod
+go.sum

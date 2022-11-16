@@ -6,10 +6,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/evertrust/horizon-go"
+	"github.com/evertrust/horizon-go/certificates"
 	"github.com/evertrust/horizon-go/requests"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -22,10 +22,11 @@ func resourceCertificate() *schema.Resource {
 		UpdateContext: resourceCertificateUpdate,
 		DeleteContext: resourceCertificateDelete,
 		Schema: map[string]*schema.Schema{
-			// "module": {
-			// 	Type:     schema.TypeString,
-			// 	Required: true,
-			// },
+			"module": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+			},
 			"profile": {
 				Type:     schema.TypeString,
 				Required: true,
@@ -33,42 +34,50 @@ func resourceCertificate() *schema.Resource {
 			"owner": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
 			},
 			"team": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
 			},
 			"type": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
 			},
 			"certificate": {
 				Type:     schema.TypeString,
 				Optional: true,
 				Computed: true,
 			},
-			// "thumbprint": {
-			// 	Type:     schema.TypeString,
-			// 	Optional: true,
-			// },
-			// "selfSigned": {
-			// 	Type:     schema.TypeBool,
-			// 	Optional: true,
-			// },
-			// "publicKeyThumbprint": {
-			// 	Type:     schema.TypeString,
-			// 	Optional: true,
-			// },
+			"thumbprint": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+			},
+			"self_signed": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Computed: true,
+			},
+			"public_key_thumbprint": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+			},
 
 			// => DN or subject ?
 
-			// "dn": {
-			// 	Type:     schema.TypeString,
-			// 	Required: true,
-			// },
+			"dn": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+			},
 			"subject": {
 				Type:     schema.TypeSet,
-				Required: true,
+				Optional: true,
+				Computed: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"element": {
@@ -88,7 +97,8 @@ func resourceCertificate() *schema.Resource {
 			},
 			"sans": {
 				Type:     schema.TypeSet,
-				Required: true,
+				Optional: true,
+				Computed: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"element": {
@@ -109,6 +119,7 @@ func resourceCertificate() *schema.Resource {
 			"labels": {
 				Type:     schema.TypeSet,
 				Optional: true,
+				Computed: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"label": {
@@ -122,41 +133,55 @@ func resourceCertificate() *schema.Resource {
 					},
 				},
 			},
-			// "serial": {
-			// 	Type:     schema.TypeString,
-			// 	Optional: true,
-			// },
-			// "issuer": {
-			// 	Type:     schema.TypeString,
-			// 	Optional: true,
-			// },
-			// "notBefore": {
-			// 	Type:     schema.TypeInt,
-			// 	Optional: true,
-			// },
-			// "notAfter": {
-			// 	Type:     schema.TypeInt,
-			// 	Optional: true,
-			// },
-			// "revocationDate": {
-			// 	Type:     schema.TypeInt,
-			// 	Optional: true,
-			// },
+			"serial": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+			},
+			"issuer": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+			},
+			"not_before": {
+				Type:     schema.TypeInt,
+				Optional: true,
+				Computed: true,
+			},
+			"not_after": {
+				Type:     schema.TypeInt,
+				Optional: true,
+				Computed: true,
+			},
+			"revocation_date": {
+				Type:     schema.TypeInt,
+				Optional: true,
+				Computed: true,
+			},
 			"revocation_reason": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
 			},
 			"key_type": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
 			},
-			// "signingAlgorithm": {
-			// 	Type:     schema.TypeString,
-			// 	Optional: true,
-			// },
+			"signing_algorithm": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+			},
 			"certificate_pem": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
+			},
+			"csr": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
 			},
 		},
 	}
@@ -167,40 +192,12 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 
 	var diags diag.Diagnostics
 
-	// // Set Subject
-	var subject []requests.IndexedDNElement
-	var typeCounts = make(map[string]int)
-	dnElements := d.Get("subject").(*schema.Set)
-	for _, dnElement := range dnElements.List() {
-		dn := dnElement.(map[string]interface{})
-		// fmt.Printf("---- ELEMENT ====> %v ----\n", dn["element"])
-		typeCounts[dn["type"].(string)]++
-		subject = append(subject, requests.IndexedDNElement{
-			Element: fmt.Sprintf("%s.%d", strings.ToLower(dn["type"].(string)), typeCounts[dn["type"].(string)]),
-			Type:    dn["type"].(string),
-			Value:   fmt.Sprintf("%v", dn["value"].(string)),
-		})
-	}
+	// Get the values used in both enrollment method
 
-	// Set SANs
-	var sans []requests.IndexedSANElement
-	typeCounts = make(map[string]int)
-	sanElements := d.Get("sans").(*schema.Set)
-	for _, sanElement := range sanElements.List() {
-		san := sanElement.(map[string]interface{})
-		fmt.Printf("sanElement: %v\n", sanElement)
-		typeCounts[san["type"].(string)]++
-		sans = append(sans, requests.IndexedSANElement{
-			Element: fmt.Sprintf("%s.%d", strings.ToLower(san["type"].(string)), typeCounts[san["type"].(string)]),
-			Type:    san["type"].(string),
-			Value:   fmt.Sprintf("%v", san["value"].(string)),
-		})
-	}
-
+	profile := d.Get("profile").(string)
 	// Set Labels
 	var labels []requests.LabelElement
 	labelElements := d.Get("labels").(*schema.Set)
-	fmt.Printf("labelElements: %v\n", labelElements)
 	for _, labelElemant := range labelElements.List() {
 		label := labelElemant.(map[string]interface{})
 		labels = append(labels, requests.LabelElement{
@@ -208,42 +205,156 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 			Value: label["value"].(string),
 		})
 	}
-
-	// Get parameters
-	profile := d.Get("profile").(string)
-	key_type := d.Get("key_type").(string)
-	// owner := ""
-	// team := ""
-	// owner := d.Get("owner").(string)
-	// team := d.Get("team").(string)
-	// fmt.Printf("Test line 217 -----\n")
-	// fmt.Printf("------- %v, %v, %v, %v -------\n", profile, key_type, owner, team)
-
+	// Get owner
+	var owner *string
+	tempOwner, ownerOk := d.GetOk("owner")
+	if ownerOk {
+		*owner = tempOwner.(string)
+	} else {
+		owner = nil
+	}
+	// Get team
+	var team *string
+	tempTeam, teamOk := d.GetOk("team")
+	if teamOk {
+		*team = tempTeam.(string)
+	} else {
+		team = nil
+	}
+	// The presence of a CSR will determine which enrollment method will be used
 	// Get CSR
+	tempCsr, csrOk := d.GetOk("csr")
+	if csrOk {
+		csr := []byte(tempCsr.(string))
+		res, err := c.Requests.DecentralizedEnroll(profile, csr, labels, owner, team)
+		if err != nil {
+			return diag.FromErr(err)
+		}
 
-	res, err := c.Requests.CentralizedEnroll(profile, subject, sans, labels, key_type, nil, nil)
+		// SetId => Mandatory
+		d.SetId(res.Certificate.Id)
+		// d.Get("certificate")
+		// d.Set("certificate", string(res.Certificate.Certificate))
+		fillCertificateSchema(
+			d,
+			string(res.Certificate.Module),
+			string(res.Certificate.Profile),
+			string(res.Certificate.Owner),
+			string(res.Certificate.Certificate),
+			string(res.Certificate.Thumbprint),
+			bool(res.Certificate.SelfSigned),
+			string(res.Certificate.PublicKeyThumbprint),
+			string(res.Certificate.Dn),
+			string(res.Certificate.Serial),
+			string(res.Certificate.Issuer),
+			int(res.Certificate.NotBefore),
+			int(res.Certificate.NotAfter),
+			int(res.Certificate.RevocationDate),
+			string(res.Certificate.RevocationReason),
+			string(res.Certificate.KeyType),
+			string(res.Certificate.SigningAlgorithm),
+		)
 
-	fmt.Printf("Certificate : %v\n%v", res.Certificate.Certificate, reflect.TypeOf(res.Certificate.Certificate))
+	} else {
+		// Set Subject
+		var subject []requests.IndexedDNElement
+		var typeCounts = make(map[string]int)
+		dnElements := d.Get("subject").(*schema.Set)
+		for _, dnElement := range dnElements.List() {
+			dn := dnElement.(map[string]interface{})
+			typeCounts[dn["type"].(string)]++
+			subject = append(subject, requests.IndexedDNElement{
+				Element: fmt.Sprintf("%s.%d", strings.ToLower(dn["type"].(string)), typeCounts[dn["type"].(string)]),
+				Type:    dn["type"].(string),
+				Value:   fmt.Sprintf("%v", dn["value"].(string)),
+			})
+		}
 
-	// SetId => Mandatory
-	d.SetId(res.Id)
-	d.Get("certificate")
-	d.Set("certificate", string(res.Certificate.Certificate))
+		// Set SANs
+		var sans []requests.IndexedSANElement
+		typeCounts = make(map[string]int)
+		sanElements := d.Get("sans").(*schema.Set)
+		for _, sanElement := range sanElements.List() {
+			san := sanElement.(map[string]interface{})
+			typeCounts[san["type"].(string)]++
+			sans = append(sans, requests.IndexedSANElement{
+				Element: fmt.Sprintf("%s.%d", strings.ToLower(san["type"].(string)), typeCounts[san["type"].(string)]),
+				Type:    san["type"].(string),
+				Value:   fmt.Sprintf("%v", san["value"].(string)),
+			})
+		}
+		// Get keyType
+		key_type := d.Get("key_type").(string)
 
-	if err != nil {
-		fmt.Printf("--- CENTRALIZED ENROLL ERROR : %v\n", err)
-		return diag.FromErr(err)
+		res, err := c.Requests.CentralizedEnroll(profile, subject, sans, labels, key_type, owner, team)
+		if err != nil {
+			return diag.FromErr(err)
+		}
+
+		// SetId => Mandatory
+		d.SetId(res.Certificate.Id)
+		// d.Get("certificate")
+		// d.Set("certificate", string(res.Certificate.Certificate))
+
+		fillCertificateSchema(
+			d,
+			string(res.Certificate.Module),
+			string(res.Certificate.Profile),
+			string(res.Certificate.Owner),
+			string(res.Certificate.Certificate),
+			string(res.Certificate.Thumbprint),
+			bool(res.Certificate.SelfSigned),
+			string(res.Certificate.PublicKeyThumbprint),
+			string(res.Certificate.Dn),
+			string(res.Certificate.Serial),
+			string(res.Certificate.Issuer),
+			int(res.Certificate.NotBefore),
+			int(res.Certificate.NotAfter),
+			int(res.Certificate.RevocationDate),
+			string(res.Certificate.RevocationReason),
+			string(res.Certificate.KeyType),
+			string(res.Certificate.SigningAlgorithm),
+		)
+
 	}
 
+	// Call read
 	resourceCertificateRead(ctx, d, m)
 
 	return diags
 }
 
 func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	c := m.(*horizon.Horizon)
+
 	var diags diag.Diagnostics
 
-	d.Id()
+	res, err := c.Certificate.Get(d.Id())
+	if err != nil {
+		d.SetId("")
+		return diag.FromErr(err)
+	}
+
+	fillCertificateSchema(
+		d,
+		string(res.Module),
+		string(res.Profile),
+		string(res.Owner),
+		string(res.Certificate),
+		string(res.Thumbprint),
+		bool(res.SelfSigned),
+		string(res.PublicKeyThumbprint),
+		string(res.Dn),
+		string(res.Serial),
+		string(res.Issuer),
+		int(res.NotBefore),
+		int(res.NotAfter),
+		int(res.RevocationDate),
+		string(res.RevocationReason),
+		string(res.KeyType),
+		string(res.SigningAlgorithm),
+	)
+
 	return diags
 }
 
@@ -252,19 +363,19 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 }
 
 func resourceCertificateDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	// c := new(horizon.Horizon)
-	// url, _ := url.Parse("https://horizon-qa.evertrust.io")
-	// c.Init(*url, "adu", "adu")
+	c := m.(*horizon.Horizon)
 
 	var diags diag.Diagnostics
 
-	// certificate_pem := d.Get("certificate_pem").(string)
-	// revocation_reason := certificates.RevocationReason(d.Get("revocation_reason").(string))
-
-	// _, err := c.Requests.Revoke(certificate_pem, revocation_reason)
-	// if err != nil {
-	// 	return diag.FromErr(err)
-	// }
+	revocation_reason := certificates.RevocationReason(d.Get("revocation_reason").(string))
+	tempCertificate, ok := d.GetOk("certificate")
+	if ok {
+		certificate := tempCertificate.(string)
+		_, err := c.Requests.Revoke(certificate, revocation_reason)
+		if err != nil {
+			return diag.FromErr(err)
+		}
+	}
 
 	d.SetId("")
 
