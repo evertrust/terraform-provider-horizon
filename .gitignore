@@ -6,6 +6,7 @@ terraform.tfstate
 terraform.tfstate.*
 go.mod
 go.sum
+tfplugindocs/*
 
 main.tf
 version.tf
