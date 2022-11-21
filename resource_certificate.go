@@ -66,9 +66,6 @@ func resourceCertificate() *schema.Resource {
 				Optional: true,
 				Computed: true,
 			},
-
-			// => DN or subject ?
-
 			"dn": {
 				Type:     schema.TypeString,
 				Optional: true,
@@ -183,6 +180,11 @@ func resourceCertificate() *schema.Resource {
 				Optional: true,
 				Computed: true,
 			},
+			"revoke_on_delete": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  true,
+			},
 		},
 	}
 }
@@ -226,6 +228,17 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 	tempCsr, csrOk := d.GetOk("csr")
 	if csrOk {
 		csr := []byte(tempCsr.(string))
+
+		_, keyTypeOk := d.GetOk("key_type")
+		if keyTypeOk {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Summary:  "Not needed argument",
+				Detail:   "The parameter 'key_type' is not compatible with the parameter 'csr'.",
+			})
+			return diags
+		}
+
 		res, err := c.Requests.DecentralizedEnroll(profile, csr, labels, owner, team)
 		if err != nil {
 			return diag.FromErr(err)
@@ -233,8 +246,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 
 		// SetId => Mandatory
 		d.SetId(res.Certificate.Id)
-		// d.Get("certificate")
-		// d.Set("certificate", string(res.Certificate.Certificate))
+
 		fillCertificateSchema(
 			d,
 			string(res.Certificate.Module),
@@ -265,7 +277,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 			typeCounts[dn["type"].(string)]++
 			subject = append(subject, requests.IndexedDNElement{
 				Element: fmt.Sprintf("%s.%d", strings.ToLower(dn["type"].(string)), typeCounts[dn["type"].(string)]),
-				Type:    dn["type"].(string),
+				Type:    strings.ToUpper(dn["type"].(string)),
 				Value:   fmt.Sprintf("%v", dn["value"].(string)),
 			})
 		}
@@ -279,7 +291,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 			typeCounts[san["type"].(string)]++
 			sans = append(sans, requests.IndexedSANElement{
 				Element: fmt.Sprintf("%s.%d", strings.ToLower(san["type"].(string)), typeCounts[san["type"].(string)]),
-				Type:    san["type"].(string),
+				Type:    strings.ToUpper(san["type"].(string)),
 				Value:   fmt.Sprintf("%v", san["value"].(string)),
 			})
 		}
@@ -293,8 +305,6 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 
 		// SetId => Mandatory
 		d.SetId(res.Certificate.Id)
-		// d.Get("certificate")
-		// d.Set("certificate", string(res.Certificate.Certificate))
 
 		fillCertificateSchema(
 			d,
@@ -467,13 +477,15 @@ func resourceCertificateDelete(ctx context.Context, d *schema.ResourceData, m in
 
 	var diags diag.Diagnostics
 
-	revocation_reason := certificates.RevocationReason(d.Get("revocation_reason").(string))
-	tempCertificate, ok := d.GetOk("certificate")
-	if ok {
-		certificate := tempCertificate.(string)
-		_, err := c.Requests.Revoke(certificate, revocation_reason)
-		if err != nil {
-			return diag.FromErr(err)
+	if d.Get("revoke_on_delete").(bool) {
+		revocation_reason := certificates.RevocationReason(d.Get("revocation_reason").(string))
+		tempCertificate, ok := d.GetOk("certificate")
+		if ok {
+			certificate := tempCertificate.(string)
+			_, err := c.Requests.Revoke(certificate, revocation_reason)
+			if err != nil {
+				return diag.FromErr(err)
+			}
 		}
 	}
 

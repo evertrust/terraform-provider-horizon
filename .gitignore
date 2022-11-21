@@ -3,5 +3,6 @@
 terraform-provider-horizon
 terraform.tfstate.backup
 terraform.tfstate
+terraform.tfstate.*
 go.mod
 go.sum
