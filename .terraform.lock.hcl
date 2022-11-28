@@ -2,9 +2,9 @@
 # Manual edits may be lost in future updates.
 
 provider "evertrust.fr/horizon/horizon" {
-  version     = "0.0.157"
+  version     = "0.0.158"
   constraints = "~> 0.0.40"
   hashes = [
-    "h1:3hSXrRB4X1Wt6WoTJ6ZAdp6z9SPQ+l9mTij3cXp5Fik=",
+    "h1:P4jE4X72jRVcohQYmfPptnKzRRvkItD30RNsPXe8Pf4=",
   ]
 }

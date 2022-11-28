@@ -1,0 +1,26 @@
+name: Build documentation with tfplugindocs
+on: 
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build: 
+    name: 'Build terraform documentation with tfplugindocs'
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Check out terraform-provider-horizon
+      uses: actions/checkout@v3
+      with: 
+        path: terraform-provider-horizon
+    
+    - name: build doc
+      uses: terraform-docs/gh-actions@v1.0.0
+      with:
+        working-dir: .
+        output-file: docs/documentation.md
+        output-method: replace
+        git-push: "true"
