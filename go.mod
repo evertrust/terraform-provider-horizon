@@ -68,4 +68,3 @@ require (
 	google.golang.org/protobuf v1.28.1 // indirect
 )
 
-replace github.com/evertrust/horizon-go => ../horizon-go
