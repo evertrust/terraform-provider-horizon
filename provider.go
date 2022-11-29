@@ -13,16 +13,19 @@ func Provider() *schema.Provider {
 	return &schema.Provider{
 		Schema: map[string]*schema.Schema{
 			"x_api_id": {
-				Type:     schema.TypeString,
-				Required: true,
+				Description: "Local account identifier.",
+				Type:        schema.TypeString,
+				Required:    true,
 			},
 			"x_api_key": {
-				Type:     schema.TypeString,
-				Required: true,
+				Description: "Local account password.",
+				Type:        schema.TypeString,
+				Required:    true,
 			},
 			"endpoint": {
-				Type:     schema.TypeString,
-				Required: true,
+				Description: "Horizon endpoint.",
+				Type:        schema.TypeString,
+				Required:    true,
 			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
