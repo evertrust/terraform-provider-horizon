@@ -1,34 +1,18 @@
 # horizon-provider-terraform
 
-The Horizon Provider allows [Terraform](https://terraform.io) to manage Horizon resources.
+The Horizon Provider allows [Terraform](https://terraform.io) to manage [Horizon](https://evertrust.fr/horizon) resources.
 
-## Usage Example
+## Quick Starts
 
-```terraform
-# 1. Configure the Horizon Provider
-provider "horizon" {
-  x_api_id  = "myId"
-  x_api_key = "myKey"
-  endpoint  = "horizon-endpoint"
-}
+* [Provider Documentation](https://github.com/EverTrust/terraform-provider-horizon/tree/main/docs)
 
-# 2. Create a resource Certificate
-resource "horizon_certificate" "example" {
-  subject {
-    element = "CN"
-    type    = "CN"
-    value   = "example.terraform.cn"
-  }
-  sans {
-    element = "DNSNAME"
-    type    = "DNSNAME"
-    value   = "example.terraform.dnsname"
-  }
-  labels {
-    label   = "label"
-    value   = "example"
-  }
-  profile   = "Enrollment Profile"
-  key_type  = "rsa-2048"  
-}
+## Provider Usage
+
+### Upgrading the provider 
+
+The Horizon Provider doesn't upgrade automatically once you've started using it. After a new release you can run 
+```bash
+terraform init -upgrade
 ```
+to upgrade to the latest stable version of the Horizon Provider.
+

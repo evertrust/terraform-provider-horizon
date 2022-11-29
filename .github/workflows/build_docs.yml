@@ -1,6 +1,9 @@
 name: Build docs
+
 on: 
   push:
+    tags:
+      - '*'
 
 jobs:
   build_doc: 
