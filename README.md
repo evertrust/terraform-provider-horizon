@@ -2,6 +2,8 @@
 
 The Horizon Provider allows [Terraform](https://terraform.io) to manage [Horizon](https://evertrust.fr/horizon) resources.
 
+* [Evertrust website](https://evertrust.fr)
+
 ## Quick Starts
 
 * [Provider Documentation](https://github.com/EverTrust/terraform-provider-horizon/tree/main/docs)

@@ -17,6 +17,7 @@ import (
 
 func resourceCertificate() *schema.Resource {
 	return &schema.Resource{
+		Description:   "Provides a Certificate resource. This resource allow you to manage the life cycle of a certificate.",
 		CreateContext: resourceCertificateCreate,
 		ReadContext:   resourceCertificateRead,
 		UpdateContext: resourceCertificateUpdate,
