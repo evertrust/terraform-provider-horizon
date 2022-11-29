@@ -3,7 +3,7 @@ on:
   push:
 
 jobs:
-  setup_go: 
+  build_doc: 
     runs-on: ubuntu-latest
     steps:  
       - uses: actions/checkout@v3
