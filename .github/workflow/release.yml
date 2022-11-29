@@ -1,1 +1,16 @@
-name: release
+name: Release
+
+on:
+  push:
+    tags: 
+      - '*'
+
+jobs:
+  terraform-provider-release:
+    name: 'Terraform Provider Release'
+    uses: hashicorp/ghaction-terraform-provider-release/.github/workflows/hashicorp.yml@v2
+    secrets: 
+      # TODO: Add secret gpg key
+      gpg-private-key: '${{ secrets. }}'
+    with:
+      setup-go-version: '1.19.x'
