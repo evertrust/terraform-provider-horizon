@@ -10,6 +10,8 @@ The Horizon Provider allows [Terraform](https://terraform.io) to manage [Horizon
 
 ## Provider Usage
 
+The Horizon Provider allow you to manage the life cycle of a certificate. From the création to the revocation.
+
 ### Upgrading the provider 
 
 The Horizon Provider doesn't upgrade automatically once you've started using it. After a new release you can run 
