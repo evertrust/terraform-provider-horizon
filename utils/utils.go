@@ -4,7 +4,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
-func fillCertificateSchema(
+func FillCertificateSchema(
 	d *schema.ResourceData,
 	module string,
 	profile string,

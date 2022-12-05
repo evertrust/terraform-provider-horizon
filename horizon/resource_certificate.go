@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"evertrust.fr/horizon/utils"
 	"github.com/evertrust/horizon-go"
 	"github.com/evertrust/horizon-go/certificates"
 	"github.com/evertrust/horizon-go/requests"
@@ -274,7 +275,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 		// SetId => Mandatory
 		d.SetId(res.Certificate.Id)
 
-		utils.fillCertificateSchema(
+		utils.FillCertificateSchema(
 			d,
 			string(res.Certificate.Module),
 			string(res.Certificate.Profile),
@@ -333,7 +334,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 		// SetId => Mandatory
 		d.SetId(res.Certificate.Id)
 
-		utils.fillCertificateSchema(
+		utils.FillCertificateSchema(
 			d,
 			string(res.Certificate.Module),
 			string(res.Certificate.Profile),
@@ -373,7 +374,7 @@ func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m inte
 		return diag.FromErr(err)
 	}
 
-	utils.fillCertificateSchema(
+	utils.FillCertificateSchema(
 		d,
 		string(res.Module),
 		string(res.Profile),
@@ -472,7 +473,7 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 	d.SetId(res.Certificate.Id)
 
 	// Update the schema with values from new certificate
-	utils.fillCertificateSchema(
+	utils.FillCertificateSchema(
 		d,
 		string(res.Certificate.Module),
 		string(res.Certificate.Profile),
