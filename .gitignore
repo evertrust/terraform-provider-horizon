@@ -4,12 +4,8 @@ terraform-provider-horizon
 terraform.tfstate.backup
 terraform.tfstate
 terraform.tfstate.*
-go.mod
-go.sum
 
-main.tf
-main1.tf
-version.tf
+*.tf
 
 terraform.tfplan
 .DS_Store
