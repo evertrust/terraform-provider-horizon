@@ -10,3 +10,5 @@ terraform.tfstate.*
 terraform.tfplan
 .DS_Store
 
+main.tf
+version.tf
