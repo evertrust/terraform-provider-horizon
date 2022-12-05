@@ -3,7 +3,7 @@ module evertrust.fr/horizon
 go 1.19
 
 require (
-	github.com/evertrust/horizon-go v0.0.5-0.20221129104639-54b2e7610668
+	github.com/evertrust/horizon-go v0.0.5-0.20221130160019-f847474c5a50
 	github.com/hashicorp/terraform-plugin-docs v0.13.0
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.24.1
 )

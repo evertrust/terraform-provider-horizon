@@ -11,6 +11,13 @@ The Horizon Provider is used to manage the life cycle of certificates.
 
 ## Example Usage
 
-{{ tffile "examples/provider/provider.tf" }}
+You can authent with credentials.
+
+{{ tffile "examples/provider/provider_creds.tf" }}
+
+Or with a certificate and a key.
+
+{{ tffile "examples/provider/provider_cert.tf" }}
+
 
 {{ .SchemaMarkdown | trimspace }}

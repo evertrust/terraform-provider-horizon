@@ -2,7 +2,6 @@ package horizon
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 
 	"github.com/evertrust/horizon-go"
@@ -59,10 +58,8 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 
 	c := new(horizon.Horizon)
 	if (x_api_id != "") && (x_api_key != "") {
-		fmt.Printf("got creds !!!")
 		c.Init(*endpoint, x_api_id, x_api_key, "", "")
 	} else if (cert != "") && (key != "") {
-		fmt.Printf("got cert !!!")
 		c.Init(*endpoint, "", "", cert, key)
 	} else {
 		diags = append(diags, diag.Diagnostic{

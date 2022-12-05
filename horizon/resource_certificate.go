@@ -25,9 +25,9 @@ func resourceCertificate() *schema.Resource {
 		DeleteContext: resourceCertificateDelete,
 		Schema: map[string]*schema.Schema{
 			"module": {
-				Description: "Enrollment module. By default it is 'webra'. It is not editable yet.",
+				Description: "Enrollment module.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"profile": {
@@ -50,31 +50,31 @@ func resourceCertificate() *schema.Resource {
 			"certificate": {
 				Description: "Enrolled certificate.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"thumbprint": {
 				Description: "Certificate thumbprint.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"self_signed": {
 				Description: "",
 				Type:        schema.TypeBool,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"public_key_thumbprint": {
 				Description: "Certificate publicKeyThumbprint.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"dn": {
 				Description: "certificate DN.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"subject": {
@@ -150,31 +150,31 @@ func resourceCertificate() *schema.Resource {
 			"serial": {
 				Description: "Certificate serial.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"issuer": {
 				Description: "Certificate issuer.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"not_before": {
 				Description: "Certificate creation date.",
 				Type:        schema.TypeInt,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"not_after": {
 				Description: "Certificate expiration date.",
 				Type:        schema.TypeInt,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"revocation_date": {
 				Description: "Certificate revocation date.",
 				Type:        schema.TypeInt,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"revocation_reason": {
@@ -192,13 +192,13 @@ func resourceCertificate() *schema.Resource {
 			"signing_algorithm": {
 				Description: "Certificate signing algorithm.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"certificate_pem": {
 				Description: "Enrolled certificate pem file.",
 				Type:        schema.TypeString,
-				Optional:    true,
+				Optional:    false,
 				Computed:    true,
 			},
 			"csr": {

@@ -12,9 +12,15 @@ description: |-
 This resource creates and enroll a certificate on Horizon, with centralized or decentralized method. 
 To enroll with the decentralized method, you just need to edit the `csr` argument.
 
-{{ if .HasExample -}}
 ## Example Usage
 
-{{ tffile "examples/resources/horizon_certificate/resource.tf" }}
-{{- end }}
+### Centralized enroll
+
+{{ tffile "examples/resources/horizon_certificate/resource_centralized.tf" }}
+
+### Decentralized enroll
+
+{{ tffile "examples/resources/horizon_certificate/resource_decentralized.tf" }}
+
+
 {{ .SchemaMarkdown | trimspace }}

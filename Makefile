@@ -1,4 +1,4 @@
-VERSION = 0.0.40
+VERSION = 
 
 build: 
 		go build -o terraform-provider-horizon
@@ -10,3 +10,7 @@ init:
 
 apply:
 		terraform apply -auto-approve
+
+update:
+		go get github.com/evertrust/horizon-go@latest
+		go mod tidy
