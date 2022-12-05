@@ -5,7 +5,7 @@ terraform.tfstate.backup
 terraform.tfstate
 terraform.tfstate.*
 
-*.tf
+./*.tf
 
 terraform.tfplan
 .DS_Store
