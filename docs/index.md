@@ -41,7 +41,7 @@ provider "horizon" {
 
 ### Optional
 
-- `cert` (String) Authent certificate
-- `key` (String) Certificate key
+- `cert` (String) Authent certificate file.
+- `key` (String) Key file for the authent by certificate.
 - `x_api_id` (String) Local account identifier.
 - `x_api_key` (String) Local account password.

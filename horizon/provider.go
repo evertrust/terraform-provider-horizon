@@ -23,12 +23,12 @@ func Provider() *schema.Provider {
 				Optional:    true,
 			},
 			"cert": {
-				Description: "Authent certificate",
+				Description: "Authent certificate file.",
 				Type:        schema.TypeString,
 				Optional:    true,
 			},
 			"key": {
-				Description: "Certificate key",
+				Description: "Key file for the authent by certificate.",
 				Type:        schema.TypeString,
 				Optional:    true,
 			},

@@ -10,7 +10,8 @@ description: |-
 Provides a Certificate resource. This resource allow you to manage the life cycle of a certificate.
 
 This resource creates and enroll a certificate on Horizon, with centralized or decentralized method. 
-To enroll with the decentralized method, you just need to edit the `csr` argument.
+To enroll with the decentralized method you just need to edit the `csr` argument.
+The argument `key_file` is required for a centralized enroll, but forbiden in decentralized enroll.
 
 ## Example Usage
 
