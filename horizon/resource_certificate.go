@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"evertrust.fr/horizon/utils"
 	"github.com/evertrust/horizon-go"
@@ -213,6 +214,12 @@ func resourceCertificate() *schema.Resource {
 				Optional:    true,
 				Default:     true,
 			},
+			"auto_renew": {
+				Description: "An option that allows the certificate to automatically renew on read if the peremption date is passed. By default it set at false.",
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+			},
 		},
 	}
 }
@@ -275,25 +282,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 		// SetId => Mandatory
 		d.SetId(res.Certificate.Id)
 
-		utils.FillCertificateSchema(
-			d,
-			string(res.Certificate.Module),
-			string(res.Certificate.Profile),
-			string(res.Certificate.Owner),
-			string(res.Certificate.Certificate),
-			string(res.Certificate.Thumbprint),
-			bool(res.Certificate.SelfSigned),
-			string(res.Certificate.PublicKeyThumbprint),
-			string(res.Certificate.Dn),
-			string(res.Certificate.Serial),
-			string(res.Certificate.Issuer),
-			int(res.Certificate.NotBefore),
-			int(res.Certificate.NotAfter),
-			int(res.Certificate.RevocationDate),
-			string(res.Certificate.RevocationReason),
-			string(res.Certificate.KeyType),
-			string(res.Certificate.SigningAlgorithm),
-		)
+		utils.FillCertificateSchema(d, res.Certificate)
 
 	} else {
 		// Set Subject
@@ -334,26 +323,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 		// SetId => Mandatory
 		d.SetId(res.Certificate.Id)
 
-		utils.FillCertificateSchema(
-			d,
-			string(res.Certificate.Module),
-			string(res.Certificate.Profile),
-			string(res.Certificate.Owner),
-			string(res.Certificate.Certificate),
-			string(res.Certificate.Thumbprint),
-			bool(res.Certificate.SelfSigned),
-			string(res.Certificate.PublicKeyThumbprint),
-			string(res.Certificate.Dn),
-			string(res.Certificate.Serial),
-			string(res.Certificate.Issuer),
-			int(res.Certificate.NotBefore),
-			int(res.Certificate.NotAfter),
-			int(res.Certificate.RevocationDate),
-			string(res.Certificate.RevocationReason),
-			string(res.Certificate.KeyType),
-			string(res.Certificate.SigningAlgorithm),
-		)
-
+		utils.FillCertificateSchema(d, res.Certificate)
 	}
 
 	// Call read
@@ -374,25 +344,18 @@ func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m inte
 		return diag.FromErr(err)
 	}
 
-	utils.FillCertificateSchema(
-		d,
-		string(res.Module),
-		string(res.Profile),
-		string(res.Owner),
-		string(res.Certificate),
-		string(res.Thumbprint),
-		bool(res.SelfSigned),
-		string(res.PublicKeyThumbprint),
-		string(res.Dn),
-		string(res.Serial),
-		string(res.Issuer),
-		int(res.NotBefore),
-		int(res.NotAfter),
-		int(res.RevocationDate),
-		string(res.RevocationReason),
-		string(res.KeyType),
-		string(res.SigningAlgorithm),
-	)
+	utils.FillCertificateSchema(d, res)
+
+	notAfter := time.Unix(int64(res.NotAfter), 0)
+	if time.Now().After(notAfter) && d.Get("auto_renew").(bool) {
+		// call renew
+		resourceCertificateCreate(ctx, d, m)
+	}
+
+	if d.Get("revocation_date") != 0 {
+		d.SetId("")
+		return diags
+	}
 
 	return diags
 }
@@ -473,25 +436,7 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 	d.SetId(res.Certificate.Id)
 
 	// Update the schema with values from new certificate
-	utils.FillCertificateSchema(
-		d,
-		string(res.Certificate.Module),
-		string(res.Certificate.Profile),
-		string(res.Certificate.Owner),
-		string(res.Certificate.Certificate),
-		string(res.Certificate.Thumbprint),
-		bool(res.Certificate.SelfSigned),
-		string(res.Certificate.PublicKeyThumbprint),
-		string(res.Certificate.Dn),
-		string(res.Certificate.Serial),
-		string(res.Certificate.Issuer),
-		int(res.Certificate.NotBefore),
-		int(res.Certificate.NotAfter),
-		int(res.Certificate.RevocationDate),
-		string(res.Certificate.RevocationReason),
-		string(res.Certificate.KeyType),
-		string(res.Certificate.SigningAlgorithm),
-	)
+	utils.FillCertificateSchema(d, res.Certificate)
 
 	// Call read
 	// Is it necessary ?
