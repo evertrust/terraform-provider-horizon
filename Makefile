@@ -1,4 +1,4 @@
-VERSION = 0.0.173
+VERSION = 0.0.176
 
 build: 
 		go build -o terraform-provider-horizon

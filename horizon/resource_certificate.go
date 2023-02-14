@@ -346,10 +346,11 @@ func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m inte
 
 	utils.FillCertificateSchema(d, res)
 
-	notAfter := time.Unix(int64(res.NotAfter), 0)
+	notAfter := time.Unix(int64(res.NotAfter/1000), 0)
 	if time.Now().After(notAfter) && d.Get("auto_renew").(bool) {
-		// call renew
-		resourceCertificateCreate(ctx, d, m)
+		result, _ := utils.ReEnrollCertificate(d, m, c, diags)
+		// Update the schema with values from new certificate
+		utils.FillCertificateSchema(d, result.Certificate)
 	}
 
 	if d.Get("revocation_date") != 0 {
@@ -365,57 +366,6 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 
 	var diags diag.Diagnostics
 
-	// Get all values
-	profile := d.Get("profile").(string)
-	// Set Labels
-	var labels []requests.LabelElement
-	labelElements := d.Get("labels").(*schema.Set)
-	for _, labelElement := range labelElements.List() {
-		label := labelElement.(map[string]interface{})
-		labels = append(labels, requests.LabelElement{
-			Label: label["label"].(string),
-			Value: label["value"].(string),
-		})
-	}
-	// Set subject
-	var subject []requests.IndexedDNElement
-	var typeCounts = make(map[string]int)
-	dnElements := d.Get("subject").(*schema.Set)
-	for _, dnElement := range dnElements.List() {
-		dn := dnElement.(map[string]interface{})
-		typeCounts[dn["type"].(string)]++
-		subject = append(subject, requests.IndexedDNElement{
-			Element: fmt.Sprintf("%s.%d", strings.ToLower(dn["type"].(string)), typeCounts[dn["type"].(string)]),
-			Type:    dn["type"].(string),
-			Value:   fmt.Sprintf("%v", dn["value"].(string)),
-		})
-	}
-	// Set SANs
-	var sans []requests.IndexedSANElement
-	typeCounts = make(map[string]int)
-	sanElements := d.Get("sans").(*schema.Set)
-	for _, sanElement := range sanElements.List() {
-		san := sanElement.(map[string]interface{})
-		typeCounts[san["type"].(string)]++
-		sans = append(sans, requests.IndexedSANElement{
-			Element: fmt.Sprintf("%s.%d", strings.ToLower(san["type"].(string)), typeCounts[san["type"].(string)]),
-			Type:    san["type"].(string),
-			Value:   fmt.Sprintf("%v", san["value"].(string)),
-		})
-	}
-	// Get keyType
-	keyType := d.Get("key_type").(string)
-	// Get owner
-	owner := d.Get("owner").(string)
-	// Get team
-	var team *string
-	tempTeam, teamOk := d.GetOk("team")
-	if teamOk {
-		*team = tempTeam.(string)
-	} else {
-		team = nil
-	}
-
 	// Revoke the old certificate
 	revocationReason := certificates.RevocationReason(d.Get("revocation_reason").(string))
 	tempCertificate, ok := d.GetOk("certificate")
@@ -427,13 +377,7 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 		}
 	}
 
-	// Enroll the new certificate with same parameters
-	res, err := c.Requests.CentralizedEnroll(profile, subject, sans, labels, keyType, &owner, team)
-	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	d.SetId(res.Certificate.Id)
+	res, diags := utils.ReEnrollCertificate(d, m, c, diags)
 
 	// Update the schema with values from new certificate
 	utils.FillCertificateSchema(d, res.Certificate)
