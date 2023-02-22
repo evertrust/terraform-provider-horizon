@@ -346,14 +346,13 @@ func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m inte
 
 	utils.FillCertificateSchema(d, res)
 
-	notAfter := time.Unix(int64(res.NotAfter/1000), 0)
-	if time.Now().After(notAfter) && d.Get("auto_renew").(bool) {
-		result, _ := utils.ReEnrollCertificate(d, m, c, diags)
-		// Update the schema with values from new certificate
-		utils.FillCertificateSchema(d, result.Certificate)
+	if d.Get("revocation_date") != 0 {
+		d.SetId("")
+		return diags
 	}
 
-	if d.Get("revocation_date") != 0 {
+	notAfter := time.Unix(int64(res.NotAfter/1000), 0)
+	if time.Now().After(notAfter) && d.Get("auto_renew").(bool) {
 		d.SetId("")
 		return diags
 	}
