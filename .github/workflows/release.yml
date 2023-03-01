@@ -1,8 +1,8 @@
 name: release
 on:
   push:
-    tags:
-      - 'v*'
+    # tags:
+    #   - 'v*'
 
 permissions:
   contents: write
@@ -29,7 +29,6 @@ jobs:
         uses: 'google-github-actions/auth@v1'
         with: 
           credentials_json: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
-          service_account: '???'
       
       - name: Get secret
         id: secrets
