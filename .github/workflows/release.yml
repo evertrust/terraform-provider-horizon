@@ -42,14 +42,14 @@ jobs:
         uses: Ba4bes/Password-Generator@v0.1
       
       - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@111c56156bcc6918c056dbef52164cfa583dc549 # v5.2.0
+        uses: crazy-max/ghaction-import-gpg@v5.2
         id: import_gpg
         with:
           gpg_private_key: ${{ steps.secrets.outputs.key }}
           passphrase: ${{ steps.generatedpassword.outputs.password }}
       
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@f82d6c1c344bcacabba2c841718984797f664a6b # v4.2.0
+        uses: goreleaser/goreleaser-action@v4.2
         with:
           version: latest
           args: release --rm-dist
