@@ -65,6 +65,7 @@ CSR CONTENT
 
 ### Optional
 
+- `auto_renew` (Boolean) An option that allows the certificate to automatically renew on read if the peremption date is passed. By default it set at false.
 - `csr` (String) A CSR file to use the decentralize enroll on Horizon. Be aware that the certificate will be enrolled with the value of your csr. The arguments `subject` and `sans` won't overwrite the CSR.
 - `key_type` (String) This is the keyType you'd like to use in the enrollment of the crtificate. It is not compatible with the `csr`argument.
 - `labels` (Block Set) Labels for the certificate. (see [below for nested schema](#nestedblock--labels))
