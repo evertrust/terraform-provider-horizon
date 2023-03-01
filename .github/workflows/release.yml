@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: write
-  
+
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
@@ -23,13 +23,32 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+
+# Replace '???' with google values
+      - name: Google auth
+        uses: 'google-github-actions/auth@v1'
+        with: 
+          credentials_json: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          service_account: '???'
+      
+      - name: Get secret
+        id: secrets
+        uses: 'google-github-actions/get-secretmanager-secrets@v1'
+          with: 
+            secrets: |-
+              key:evertrust-internal/pgp-private-key
+            #  passphrase:???
+      
+      - name: Generate passphrase
+        id: generatedpassword
+        uses: Ba4bes/Password-Generator@v0.1
       
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@111c56156bcc6918c056dbef52164cfa583dc549 # v5.2.0
         id: import_gpg
         with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.PASSPHRASE }}
+          gpg_private_key: ${{ steps.secrets.outputs.key }}
+          passphrase: ${{ steps.generatedpassword.outputs.password }}
       
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f82d6c1c344bcacabba2c841718984797f664a6b # v4.2.0
