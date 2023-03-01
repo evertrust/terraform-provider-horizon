@@ -24,7 +24,6 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-# Replace '???' with google values
       - name: Google auth
         uses: 'google-github-actions/auth@v1'
         with: 
@@ -36,7 +35,6 @@ jobs:
           with: 
             secrets: |-
               key:evertrust-internal/pgp-private-key
-            #  passphrase:???
       
       - name: Generate passphrase
         id: generatedpassword
