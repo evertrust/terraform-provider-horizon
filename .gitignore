@@ -12,3 +12,5 @@ terraform.tfplan
 
 main.tf
 version.tf
+
+gha-creds-*.json

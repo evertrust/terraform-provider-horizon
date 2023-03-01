@@ -1,8 +1,8 @@
 name: release
 on:
   push:
-    tags:
-      - 'v*'
+    # tags:
+    #   - 'v*'
 
 permissions:
   contents: write
@@ -24,20 +24,18 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-# Replace '???' with google values
       - name: Google auth
+        id: auth
         uses: 'google-github-actions/auth@v1'
         with: 
           credentials_json: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
-          service_account: '???'
       
       - name: Get secret
         id: secrets
         uses: 'google-github-actions/get-secretmanager-secrets@v1'
-          with: 
-            secrets: |-
-              key:evertrust-internal/pgp-private-key
-            #  passphrase:???
+        with: 
+          secrets: |-
+            key:evertrust-internal/pgp-private-key
       
       - name: Generate passphrase
         id: generatedpassword
