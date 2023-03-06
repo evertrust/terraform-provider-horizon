@@ -36,17 +36,12 @@ jobs:
         with: 
           secrets: |-
             key:evertrust-internal/pgp-private-key
-      
-      - name: Generate passphrase
-        id: generatedpassword
-        uses: Ba4bes/Password-Generator@v0.1
-      
+            
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v5.2
         id: import_gpg
         with:
           gpg_private_key: ${{ steps.secrets.outputs.key }}
-          passphrase: ${{ steps.generatedpassword.outputs.password }}
       
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4.2
