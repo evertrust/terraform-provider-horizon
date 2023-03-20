@@ -5,14 +5,13 @@ package horizon
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	"evertrust.fr/horizon/utils"
 	"github.com/evertrust/horizon-go"
 	"github.com/evertrust/horizon-go/certificates"
-	"github.com/evertrust/horizon-go/requests"
+	old "github.com/evertrust/horizon-go/v2"
+	oldr "github.com/evertrust/horizon-go/v2/requests"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -25,6 +24,13 @@ func resourceCertificate() *schema.Resource {
 		UpdateContext: resourceCertificateUpdate,
 		DeleteContext: resourceCertificateDelete,
 		Schema: map[string]*schema.Schema{
+			"horizon_version": {
+				Description: "Horizon version. By default it will be 2.4",
+				Type:        schema.TypeFloat,
+				Optional:    true,
+				Computed:    false,
+				Default:     2.4,
+			},
 			"module": {
 				Description: "Enrollment module.",
 				Type:        schema.TypeString,
@@ -41,12 +47,14 @@ func resourceCertificate() *schema.Resource {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Computed:    true,
+				Default:     nil,
 			},
 			"team": {
 				Description: "The team linked to the enrolling certificate.",
 				Type:        schema.TypeString,
 				Optional:    true,
 				Computed:    true,
+				Default:     nil,
 			},
 			"certificate": {
 				Description: "Enrolled certificate.",
@@ -113,7 +121,7 @@ func resourceCertificate() *schema.Resource {
 						"element": {
 							Description: "SAN element.",
 							Type:        schema.TypeString,
-							Required:    true,
+							Optional:    true,
 						},
 						"type": {
 							Description: "SAN element type.",
@@ -225,36 +233,22 @@ func resourceCertificate() *schema.Resource {
 }
 
 func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
-
 	var diags diag.Diagnostics
+	version := d.Get("horizon_version").(float64)
 
 	// Get the values used in both enrollment method
-
 	profile := d.Get("profile").(string)
-	// Set Labels
-	var labels []requests.LabelElement
-	labelElements := d.Get("labels").(*schema.Set)
-	for _, labelElement := range labelElements.List() {
-		label := labelElement.(map[string]interface{})
-		labels = append(labels, requests.LabelElement{
-			Label: label["label"].(string),
-			Value: label["value"].(string),
-		})
-	}
-	// Get owner
 	var owner *string
-	tempOwner, ownerOk := d.GetOk("owner")
+	tempOwner, ownerOk := d.GetOk("team")
 	if ownerOk {
-		*owner = tempOwner.(string)
+		owner = tempOwner.(*string)
 	} else {
 		owner = nil
 	}
-	// Get team
 	var team *string
 	tempTeam, teamOk := d.GetOk("team")
 	if teamOk {
-		*team = tempTeam.(string)
+		team = tempTeam.(*string)
 	} else {
 		team = nil
 	}
@@ -263,7 +257,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 	tempCsr, csrOk := d.GetOk("csr")
 	if csrOk {
 		csr := []byte(tempCsr.(string))
-
+		// Manage the keyType to avoid errors later
 		_, keyTypeOk := d.GetOk("key_type")
 		if keyTypeOk {
 			diags = append(diags, diag.Diagnostic{
@@ -274,84 +268,81 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 			return diags
 		}
 
-		res, err := c.Requests.DecentralizedEnroll(profile, csr, labels, owner, team)
-		if err != nil {
-			return diag.FromErr(err)
+		if version >= 2.4 {
+			c := m.(*horizon.Horizon)
+			res, err := c.Requests.DecentralizedEnroll(profile, csr, utils.SetLabels2(d), owner, team)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			// SetId => Mandatory
+			d.SetId(res.Certificate.Id)
+			utils.FillCertificateSchema(d, res.Certificate)
+		} else {
+			tmp := m.(*old.Horizon)
+			o := oldr.Client(*tmp.Requests)
+			res, err := o.DecentralizedEnroll(profile, csr, utils.SetLabels(d), owner, team)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			// SetId => Mandatory
+			d.SetId(res.Certificate.Id)
+			utils.FillCertificateSchema(d, res.Certificate)
 		}
+	} else { // No CSR -> centralized enroll
+		if version >= 2.4 {
+			c := m.(*horizon.Horizon)
+			res, err := c.Requests.CentralizedEnroll(profile, "", utils.SetSubject2(d), utils.SetSans2(d), utils.SetLabels2(d), d.Get("key_type").(string), owner, team)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			// SetId => Mandatory
+			d.SetId(res.Certificate.Id)
+			utils.FillCertificateSchema(d, res.Certificate)
+		} else {
+			tmp := m.(*old.Horizon)
+			o := oldr.Client(*tmp.Requests)
+			res, err := o.CentralizedEnroll(profile, "", utils.SetSubject(d), utils.SetSans(d), utils.SetLabels(d), d.Get("key_type").(string), owner, team)
+			if err != nil {
+				return diag.FromErr(err)
+			}
 
-		// SetId => Mandatory
-		d.SetId(res.Certificate.Id)
-
-		utils.FillCertificateSchema(d, res.Certificate)
-
-	} else {
-		// Set Subject
-		var subject []requests.IndexedDNElement
-		var typeCounts = make(map[string]int)
-		dnElements := d.Get("subject").(*schema.Set)
-		for _, dnElement := range dnElements.List() {
-			dn := dnElement.(map[string]interface{})
-			typeCounts[dn["type"].(string)]++
-			subject = append(subject, requests.IndexedDNElement{
-				Element: fmt.Sprintf("%s.%d", strings.ToLower(dn["type"].(string)), typeCounts[dn["type"].(string)]),
-				Type:    strings.ToUpper(dn["type"].(string)),
-				Value:   fmt.Sprintf("%v", dn["value"].(string)),
-			})
+			// SetId => Mandatory
+			d.SetId(res.Certificate.Id)
+			utils.FillCertificateSchema(d, res.Certificate)
 		}
-
-		// Set SANs
-		var sans []requests.IndexedSANElement
-		typeCounts = make(map[string]int)
-		sanElements := d.Get("sans").(*schema.Set)
-		for _, sanElement := range sanElements.List() {
-			san := sanElement.(map[string]interface{})
-			typeCounts[san["type"].(string)]++
-			sans = append(sans, requests.IndexedSANElement{
-				Element: fmt.Sprintf("%s.%d", strings.ToLower(san["type"].(string)), typeCounts[san["type"].(string)]),
-				Type:    strings.ToUpper(san["type"].(string)),
-				Value:   fmt.Sprintf("%v", san["value"].(string)),
-			})
-		}
-		// Get keyType
-		keyType := d.Get("key_type").(string)
-
-		res, err := c.Requests.CentralizedEnroll(profile, subject, sans, labels, keyType, owner, team)
-		if err != nil {
-			return diag.FromErr(err)
-		}
-
-		// SetId => Mandatory
-		d.SetId(res.Certificate.Id)
-
-		utils.FillCertificateSchema(d, res.Certificate)
 	}
-
-	// Call read
-	// Is it necessary ?
 	resourceCertificateRead(ctx, d, m)
-
 	return diags
 }
 
 func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
-
 	var diags diag.Diagnostics
+	version := d.Get("horizon_version").(float64)
 
-	res, err := c.Certificate.Get(d.Id())
-	if err != nil {
-		d.SetId("")
-		return diag.FromErr(err)
+	if version >= 2.4 {
+		c := m.(*horizon.Horizon)
+		res, err := c.Certificate.Get(d.Id())
+		if err != nil {
+			d.SetId("")
+			return diag.FromErr(err)
+		}
+		utils.FillCertificateSchema(d, res)
+	} else {
+		o := m.(*old.Horizon)
+		res, err := o.Certificate.Get(d.Id())
+		if err != nil {
+			d.SetId("")
+			return diag.FromErr(err)
+		}
+		utils.FillCertificateSchema(d, res)
 	}
-
-	utils.FillCertificateSchema(d, res)
 
 	if d.Get("revocation_date") != 0 {
 		d.SetId("")
 		return diags
 	}
 
-	notAfter := time.Unix(int64(res.NotAfter/1000), 0)
+	notAfter := time.Unix(int64(d.Get("not_after").(int)/1000), 0)
 	if time.Now().After(notAfter) && d.Get("auto_renew").(bool) {
 		d.SetId("")
 		return diags
@@ -361,8 +352,6 @@ func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m inte
 }
 
 func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
-
 	var diags diag.Diagnostics
 
 	// Revoke the old certificate
@@ -370,27 +359,30 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 	tempCertificate, ok := d.GetOk("certificate")
 	if ok {
 		certificate := tempCertificate.(string)
-		_, err := c.Requests.Revoke(certificate, revocationReason)
-		if err != nil {
-			return diag.FromErr(err)
+		version := d.Get("horizon_version").(float64)
+		if version <= 2.4 {
+			c := m.(*horizon.Horizon)
+			_, err := c.Requests.Revoke(certificate, revocationReason)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			diags = utils.ReEnrollCertificate(d, m, c, nil, diags)
+		} else {
+			o := m.(*old.Horizon)
+			_, err := o.Requests.Revoke(certificate, revocationReason)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			diags = utils.ReEnrollCertificate(d, m, nil, o, diags)
 		}
 	}
 
-	res, diags := utils.ReEnrollCertificate(d, m, c, diags)
-
-	// Update the schema with values from new certificate
-	utils.FillCertificateSchema(d, res.Certificate)
-
-	// Call read
-	// Is it necessary ?
 	resourceCertificateRead(ctx, d, m)
 
 	return diags
 }
 
 func resourceCertificateDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
-
 	var diags diag.Diagnostics
 
 	if d.Get("revoke_on_delete").(bool) {
@@ -398,14 +390,23 @@ func resourceCertificateDelete(ctx context.Context, d *schema.ResourceData, m in
 		tempCertificate, ok := d.GetOk("certificate")
 		if ok {
 			certificate := tempCertificate.(string)
-			_, err := c.Requests.Revoke(certificate, revocation_reason)
-			if err != nil {
-				return diag.FromErr(err)
+			version := d.Get("horizon_version").(float64)
+			if version >= 2.4 {
+				c := m.(*horizon.Horizon)
+				_, err := c.Requests.Revoke(certificate, revocation_reason)
+				if err != nil {
+					return diag.FromErr(err)
+				}
+			} else {
+				o := m.(*old.Horizon)
+				_, err := o.Requests.Revoke(certificate, revocation_reason)
+				if err != nil {
+					return diag.FromErr(err)
+				}
 			}
+
 		}
 	}
-
 	d.SetId("")
-
 	return diags
 }

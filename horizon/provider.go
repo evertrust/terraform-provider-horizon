@@ -2,11 +2,14 @@ package horizon
 
 import (
 	"context"
-	"net/url"
+	"crypto/tls"
+	"fmt"
 
 	"github.com/evertrust/horizon-go"
+	old "github.com/evertrust/horizon-go/v2"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"gopkg.in/resty.v1"
 )
 
 func Provider() *schema.Provider {
@@ -37,6 +40,13 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeString,
 				Required:    true,
 			},
+			"horizon_version": {
+				Description: "Horizon version. By default it will be the last one.",
+				Type:        schema.TypeFloat,
+				Optional:    true,
+				Computed:    false,
+				Default:     2.4,
+			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
 			"horizon_certificate": resourceCertificate(),
@@ -47,27 +57,42 @@ func Provider() *schema.Provider {
 }
 
 func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+	// Warning or errors can be collected in a slice type
+	var diags diag.Diagnostics
+
 	x_api_id := d.Get("x_api_id").(string)
 	x_api_key := d.Get("x_api_key").(string)
 	cert := d.Get("cert").(string)
 	key := d.Get("key").(string)
-	endpoint, _ := url.Parse(d.Get("endpoint").(string))
+	endpoint, _ := d.Get("endpoint").(string)
 
-	// Warning or errors can be collected in a slice type
-	var diags diag.Diagnostics
+	r := resty.New()
 
-	c := new(horizon.Horizon)
-	if (x_api_id != "") && (x_api_key != "") {
-		c.Init(*endpoint, x_api_id, x_api_key, "", "")
-	} else if (cert != "") && (key != "") {
-		c.Init(*endpoint, "", "", cert, key)
-	} else {
-		diags = append(diags, diag.Diagnostic{
-			Severity: diag.Error,
-			Summary:  "Invalid credentials",
-		})
-		return nil, diags
+	if cert != "" && key != "" {
+		clientCert, err := tls.LoadX509KeyPair(cert, key)
+		if err != nil {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Summary:  fmt.Sprintf("ERROR: %s", err),
+			})
+			return nil, diags
+		}
+		r.SetCertificates(clientCert)
 	}
 
-	return c, diags
+	r.SetHeader("Content-Type", "application/json").
+		SetHostURL(endpoint).
+		SetHeader("X-API-ID", x_api_id).
+		SetHeader("X-API-KEY", x_api_key).
+		SetCookieJar(nil)
+
+	if d.Get("horizon_version").(float64) >= 2.4 {
+		c := new(horizon.Horizon)
+		c.Init(r)
+		return c, diags
+	} else {
+		o := new(old.Horizon)
+		o.Init(r)
+		return o, diags
+	}
 }
