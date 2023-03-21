@@ -25,7 +25,7 @@ func resourceCertificate() *schema.Resource {
 		DeleteContext: resourceCertificateDelete,
 		Schema: map[string]*schema.Schema{
 			"horizon_version": {
-				Description: "Horizon version. By default it will be 2.4",
+				Description: "Horizon version. Useful for version before 2.4.",
 				Type:        schema.TypeFloat,
 				Optional:    true,
 				Computed:    false,

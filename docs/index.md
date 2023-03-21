@@ -42,6 +42,7 @@ provider "horizon" {
 ### Optional
 
 - `cert` (String) Authent certificate file.
+- `horizon_version` (Number) Horizon version. Useful for version before 2.4.
 - `key` (String) Key file for the authent by certificate.
 - `x_api_id` (String) Local account identifier.
 - `x_api_key` (String) Local account password.

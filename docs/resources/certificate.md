@@ -67,6 +67,7 @@ CSR CONTENT
 
 - `auto_renew` (Boolean) An option that allows the certificate to automatically renew on read if the peremption date is passed. By default it set at false.
 - `csr` (String) A CSR file to use the decentralize enroll on Horizon. Be aware that the certificate will be enrolled with the value of your csr. The arguments `subject` and `sans` won't overwrite the CSR.
+- `horizon_version` (Number) Horizon version. Useful for version before 2.4.
 - `key_type` (String) This is the keyType you'd like to use in the enrollment of the crtificate. It is not compatible with the `csr`argument.
 - `labels` (Block Set) Labels for the certificate. (see [below for nested schema](#nestedblock--labels))
 - `owner` (String) The owner for the enrolling certificate. By default it will be the user connected in the Provider.
@@ -107,9 +108,12 @@ Required:
 
 Required:
 
-- `element` (String) SAN element.
 - `type` (String) SAN element type.
 - `value` (String) SAN element value.
+
+Optional:
+
+- `element` (String) SAN element.
 
 
 <a id="nestedblock--subject"></a>

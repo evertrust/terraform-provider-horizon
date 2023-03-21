@@ -41,7 +41,7 @@ func Provider() *schema.Provider {
 				Required:    true,
 			},
 			"horizon_version": {
-				Description: "Horizon version. By default it will be the last one.",
+				Description: "Horizon version. Useful for version before 2.4.",
 				Type:        schema.TypeFloat,
 				Optional:    true,
 				Computed:    false,
