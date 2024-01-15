@@ -1,18 +1,12 @@
 package horizon
 
-// TODO: Setup the client to use the one we initialized in the provider
-// Actually my creds are implemented in code and it is really ugly
-
 import (
 	"context"
-	"fmt"
-	"strings"
+	"github.com/evertrust/horizon-go/types"
 	"time"
 
 	"evertrust.fr/horizon/utils"
 	"github.com/evertrust/horizon-go"
-	"github.com/evertrust/horizon-go/certificates"
-	"github.com/evertrust/horizon-go/requests"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -25,12 +19,6 @@ func resourceCertificate() *schema.Resource {
 		UpdateContext: resourceCertificateUpdate,
 		DeleteContext: resourceCertificateDelete,
 		Schema: map[string]*schema.Schema{
-			"module": {
-				Description: "Enrollment module.",
-				Type:        schema.TypeString,
-				Optional:    false,
-				Computed:    true,
-			},
 			"profile": {
 				Description: "Enrollment profile.",
 				Type:        schema.TypeString,
@@ -44,6 +32,12 @@ func resourceCertificate() *schema.Resource {
 			},
 			"team": {
 				Description: "The team linked to the enrolling certificate.",
+				Type:        schema.TypeString,
+				Optional:    true,
+				Computed:    true,
+			},
+			"contact_email": {
+				Description: "The contact email for the enrolling certificate.",
 				Type:        schema.TypeString,
 				Optional:    true,
 				Computed:    true,
@@ -110,20 +104,18 @@ func resourceCertificate() *schema.Resource {
 				Computed:    true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
-						"element": {
-							Description: "SAN element.",
-							Type:        schema.TypeString,
-							Required:    true,
-						},
 						"type": {
 							Description: "SAN element type.",
 							Type:        schema.TypeString,
 							Required:    true,
 						},
 						"value": {
-							Description: "SAN element value.",
-							Type:        schema.TypeString,
-							Required:    true,
+							Description: "SAN element values.",
+							Type:        schema.TypeList,
+							Elem: &schema.Schema{
+								Type: schema.TypeString,
+							},
+							Required: true,
 						},
 					},
 				},
@@ -178,14 +170,8 @@ func resourceCertificate() *schema.Resource {
 				Optional:    false,
 				Computed:    true,
 			},
-			"revocation_reason": {
-				Description: "Certificate revocation reason.",
-				Type:        schema.TypeString,
-				Optional:    true,
-				Computed:    true,
-			},
 			"key_type": {
-				Description: "This is the keyType you'd like to use in the enrollment of the crtificate. It is not compatible with the `csr`argument.",
+				Description: "This is the keyType you'd like to use in the enrollment of the certificate. It is not compatible with the `csr` argument.",
 				Type:        schema.TypeString,
 				Optional:    true,
 				Computed:    true,
@@ -196,17 +182,25 @@ func resourceCertificate() *schema.Resource {
 				Optional:    false,
 				Computed:    true,
 			},
-			"certificate_pem": {
-				Description: "Enrolled certificate pem file.",
-				Type:        schema.TypeString,
-				Optional:    false,
-				Computed:    true,
-			},
 			"csr": {
 				Description: "A CSR file to use the decentralize enroll on Horizon. Be aware that the certificate will be enrolled with the value of your csr. The arguments `subject` and `sans` won't overwrite the CSR.",
 				Type:        schema.TypeString,
 				Optional:    true,
+				ForceNew:    true,
+			},
+			"pkcs12": {
+				Description: "A base64-encoded PKCS12 certificate data. Available only on centralized enrollments.",
+				Type:        schema.TypeString,
+				Optional:    true,
 				Computed:    true,
+				Sensitive:   true,
+			},
+			"password": {
+				Description: "The password to use for the PKCS12 certificate. Available only on centralized enrollments.",
+				Type:        schema.TypeString,
+				Optional:    true,
+				Computed:    true,
+				Sensitive:   true,
 			},
 			"revoke_on_delete": {
 				Description: "An option that allows you to delete the resource without causing the revocation of the certificate. By default it is set at true.",
@@ -229,106 +223,30 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 
 	var diags diag.Diagnostics
 
-	// Get the values used in both enrollment method
-
-	profile := d.Get("profile").(string)
-	// Set Labels
-	var labels []requests.LabelElement
-	labelElements := d.Get("labels").(*schema.Set)
-	for _, labelElement := range labelElements.List() {
-		label := labelElement.(map[string]interface{})
-		labels = append(labels, requests.LabelElement{
-			Label: label["label"].(string),
-			Value: label["value"].(string),
-		})
-	}
-	// Get owner
-	var owner *string
-	tempOwner, ownerOk := d.GetOk("owner")
-	if ownerOk {
-		*owner = tempOwner.(string)
-	} else {
-		owner = nil
-	}
-	// Get team
-	var team *string
-	tempTeam, teamOk := d.GetOk("team")
-	if teamOk {
-		*team = tempTeam.(string)
-	} else {
-		team = nil
-	}
-	// The presence of a CSR will determine which enrollment method will be used
-	// Get CSR
-	tempCsr, csrOk := d.GetOk("csr")
-	if csrOk {
-		csr := []byte(tempCsr.(string))
-
-		_, keyTypeOk := d.GetOk("key_type")
-		if keyTypeOk {
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Error,
-				Summary:  "Not needed argument",
-				Detail:   "The parameter 'key_type' is not compatible with the parameter 'csr'.",
-			})
-			return diags
-		}
-
-		res, err := c.Requests.DecentralizedEnroll(profile, csr, labels, owner, team)
-		if err != nil {
-			return diag.FromErr(err)
-		}
-
-		// SetId => Mandatory
-		d.SetId(res.Certificate.Id)
-
-		utils.FillCertificateSchema(d, res.Certificate)
-
-	} else {
-		// Set Subject
-		var subject []requests.IndexedDNElement
-		var typeCounts = make(map[string]int)
-		dnElements := d.Get("subject").(*schema.Set)
-		for _, dnElement := range dnElements.List() {
-			dn := dnElement.(map[string]interface{})
-			typeCounts[dn["type"].(string)]++
-			subject = append(subject, requests.IndexedDNElement{
-				Element: fmt.Sprintf("%s.%d", strings.ToLower(dn["type"].(string)), typeCounts[dn["type"].(string)]),
-				Type:    strings.ToUpper(dn["type"].(string)),
-				Value:   fmt.Sprintf("%v", dn["value"].(string)),
-			})
-		}
-
-		// Set SANs
-		var sans []requests.IndexedSANElement
-		typeCounts = make(map[string]int)
-		sanElements := d.Get("sans").(*schema.Set)
-		for _, sanElement := range sanElements.List() {
-			san := sanElement.(map[string]interface{})
-			typeCounts[san["type"].(string)]++
-			sans = append(sans, requests.IndexedSANElement{
-				Element: fmt.Sprintf("%s.%d", strings.ToLower(san["type"].(string)), typeCounts[san["type"].(string)]),
-				Type:    strings.ToUpper(san["type"].(string)),
-				Value:   fmt.Sprintf("%v", san["value"].(string)),
-			})
-		}
-		// Get keyType
-		keyType := d.Get("key_type").(string)
-
-		res, err := c.Requests.CentralizedEnroll(profile, subject, sans, labels, keyType, owner, team)
-		if err != nil {
-			return diag.FromErr(err)
-		}
-
-		// SetId => Mandatory
-		d.SetId(res.Certificate.Id)
-
-		utils.FillCertificateSchema(d, res.Certificate)
+	template, err := utils.EnrollTemplateFromResource(c, d)
+	if err != nil {
+		return diag.FromErr(err)
 	}
 
-	// Call read
-	// Is it necessary ?
-	resourceCertificateRead(ctx, d, m)
+	resp, err := c.Requests.NewEnrollRequest(types.WebRAEnrollRequestParams{
+		Profile:  d.Get("profile").(string),
+		Template: template,
+		Password: d.Get("password").(string),
+	})
+
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	utils.FillCertificateSchema(d, resp.Certificate)
+
+	if resp.Pkcs12 != nil {
+		d.Set("pkcs12", resp.Pkcs12.Value)
+	}
+
+	if resp.Password != nil {
+		d.Set("password", resp.Password.Value)
+	}
 
 	return diags
 }
@@ -345,6 +263,14 @@ func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m inte
 	}
 
 	utils.FillCertificateSchema(d, res)
+
+	if d.Get("pkcs12") != "" {
+		d.Set("pkcs12", d.Get("pkcs12"))
+	}
+
+	if d.Get("password") != "" {
+		d.Set("password", d.Get("password"))
+	}
 
 	if d.Get("revocation_date") != 0 {
 		d.SetId("")
@@ -366,24 +292,41 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 	var diags diag.Diagnostics
 
 	// Revoke the old certificate
-	revocationReason := certificates.RevocationReason(d.Get("revocation_reason").(string))
-	tempCertificate, ok := d.GetOk("certificate")
+	certificate, ok := d.GetOk("certificate")
 	if ok {
-		certificate := tempCertificate.(string)
-		_, err := c.Requests.Revoke(certificate, revocationReason)
+		_, err := c.Requests.NewRevokeRequest(types.WebRARevokeRequestParams{
+			RevocationReason: types.Superseded,
+			CertificatePEM:   certificate.(string),
+		})
 		if err != nil {
 			return diag.FromErr(err)
 		}
 	}
 
-	res, diags := utils.ReEnrollCertificate(d, m, c, diags)
+	template, err := utils.EnrollTemplateFromResource(c, d)
+	if err != nil {
+		return diag.FromErr(err)
+	}
 
-	// Update the schema with values from new certificate
-	utils.FillCertificateSchema(d, res.Certificate)
+	resp, err := c.Requests.NewEnrollRequest(types.WebRAEnrollRequestParams{
+		Profile:  d.Get("profile").(string),
+		Template: template,
+		Password: d.Get("password").(string),
+	})
 
-	// Call read
-	// Is it necessary ?
-	resourceCertificateRead(ctx, d, m)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	utils.FillCertificateSchema(d, resp.Certificate)
+
+	if resp.Pkcs12 != nil {
+		d.Set("pkcs12", resp.Pkcs12.Value)
+	}
+
+	if resp.Password != nil {
+		d.Set("password", resp.Password.Value)
+	}
 
 	return diags
 }
@@ -394,11 +337,12 @@ func resourceCertificateDelete(ctx context.Context, d *schema.ResourceData, m in
 	var diags diag.Diagnostics
 
 	if d.Get("revoke_on_delete").(bool) {
-		revocation_reason := certificates.RevocationReason(d.Get("revocation_reason").(string))
-		tempCertificate, ok := d.GetOk("certificate")
+		certificate, ok := d.GetOk("certificate")
 		if ok {
-			certificate := tempCertificate.(string)
-			_, err := c.Requests.Revoke(certificate, revocation_reason)
+			_, err := c.Requests.NewRevokeRequest(types.WebRARevokeRequestParams{
+				RevocationReason: types.CessationOfOperation,
+				CertificatePEM:   certificate.(string),
+			})
 			if err != nil {
 				return diag.FromErr(err)
 			}

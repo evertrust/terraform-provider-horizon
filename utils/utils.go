@@ -1,18 +1,14 @@
 package utils
 
 import (
-	"fmt"
-	"strings"
-
+	"errors"
 	"github.com/evertrust/horizon-go"
-	"github.com/evertrust/horizon-go/certificates"
-	"github.com/evertrust/horizon-go/requests"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/evertrust/horizon-go/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
-func FillCertificateSchema(d *schema.ResourceData, cert *certificates.Certificate) {
-	d.Set("module", cert.Module)
+func FillCertificateSchema(d *schema.ResourceData, cert *types.Certificate) {
+	d.SetId(cert.Id)
 	d.Set("profile", cert.Profile)
 	d.Set("owner", cert.Owner)
 	d.Set("certificate", cert.Certificate)
@@ -30,65 +26,103 @@ func FillCertificateSchema(d *schema.ResourceData, cert *certificates.Certificat
 	d.Set("signing_algorithm", cert.SigningAlgorithm)
 }
 
-func ReEnrollCertificate(d *schema.ResourceData, m interface{}, c *horizon.Horizon, diags diag.Diagnostics) (*requests.HorizonRequest, diag.Diagnostics) {
-	// Get all values
-	profile := d.Get("profile").(string)
+func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*types.WebRAEnrollTemplate, error) {
+	var template *types.WebRAEnrollTemplate
+
+	csr, isDecentralized := d.GetOk("csr")
+
+	if isDecentralized {
+		_, keyTypeOk := d.GetOk("key_type")
+		if keyTypeOk {
+			return nil, errors.New("the parameter 'key_type' is not compatible with the parameter 'csr'")
+		}
+
+		var err error
+
+		template, err = c.Requests.GetEnrollTemplate(types.WebRAEnrollTemplateParams{
+			Profile: d.Get("profile").(string),
+			Csr:     csr.(string),
+		})
+
+		if err != nil {
+			return nil, err
+		}
+
+	} else {
+		var err error
+		template, err = c.Requests.GetEnrollTemplate(types.WebRAEnrollTemplateParams{
+			Profile: d.Get("profile").(string),
+		})
+
+		if err != nil {
+			return nil, err
+		}
+
+		// Set Subject
+		var subject []types.IndexedDNElement
+		dnElements := d.Get("subject").(*schema.Set)
+		for _, dnElement := range dnElements.List() {
+			dn := dnElement.(map[string]interface{})
+			subject = append(subject, types.IndexedDNElement{
+				Element: dn["element"].(string),
+				Type:    dn["type"].(string),
+				Value:   dn["value"].(string),
+			})
+		}
+		template.Subject = subject
+
+		// Set SANs
+		var sans []types.ListSANElement
+		sanElements := d.Get("sans").(*schema.Set)
+		for _, sanElement := range sanElements.List() {
+			san := sanElement.(map[string]interface{})
+			values := []string{}
+			for _, value := range san["value"].([]interface{}) {
+				values = append(values, value.(string))
+			}
+			sans = append(sans, types.ListSANElement{
+				Type:  san["type"].(string),
+				Value: values,
+			})
+		}
+		template.Sans = sans
+
+		// Get keyType
+		keyType := d.Get("key_type").(string)
+
+		template.KeyType = keyType
+
+	}
+
 	// Set Labels
-	var labels []requests.LabelElement
+	var labels []types.LabelElement
 	labelElements := d.Get("labels").(*schema.Set)
 	for _, labelElement := range labelElements.List() {
 		label := labelElement.(map[string]interface{})
-		labels = append(labels, requests.LabelElement{
+		labels = append(labels, types.LabelElement{
 			Label: label["label"].(string),
-			Value: label["value"].(string),
+			Value: &types.String{String: label["value"].(string)},
 		})
 	}
-	// Set subject
-	var subject []requests.IndexedDNElement
-	var typeCounts = make(map[string]int)
-	dnElements := d.Get("subject").(*schema.Set)
-	for _, dnElement := range dnElements.List() {
-		dn := dnElement.(map[string]interface{})
-		typeCounts[dn["type"].(string)]++
-		subject = append(subject, requests.IndexedDNElement{
-			Element: fmt.Sprintf("%s.%d", strings.ToLower(dn["type"].(string)), typeCounts[dn["type"].(string)]),
-			Type:    dn["type"].(string),
-			Value:   fmt.Sprintf("%v", dn["value"].(string)),
-		})
-	}
-	// Set SANs
-	var sans []requests.IndexedSANElement
-	typeCounts = make(map[string]int)
-	sanElements := d.Get("sans").(*schema.Set)
-	for _, sanElement := range sanElements.List() {
-		san := sanElement.(map[string]interface{})
-		typeCounts[san["type"].(string)]++
-		sans = append(sans, requests.IndexedSANElement{
-			Element: fmt.Sprintf("%s.%d", strings.ToLower(san["type"].(string)), typeCounts[san["type"].(string)]),
-			Type:    san["type"].(string),
-			Value:   fmt.Sprintf("%v", san["value"].(string)),
-		})
-	}
-	// Get keyType
-	keyType := d.Get("key_type").(string)
+	template.Labels = labels
+
 	// Get owner
-	owner := d.Get("owner").(string)
+	owner, hasOwner := d.GetOk("owner")
+	if hasOwner {
+		template.Owner = &types.OwnerElement{Value: &types.String{String: owner.(string)}}
+	}
+
 	// Get team
-	var team *string
-	tempTeam, teamOk := d.GetOk("team")
-	if teamOk {
-		*team = tempTeam.(string)
-	} else {
-		team = nil
+	team, hasTeam := d.GetOk("team")
+	if hasTeam {
+		template.Team = &types.TeamElement{Value: &types.String{String: team.(string)}}
 	}
 
-	// Enroll the new certificate with same parameters
-	res, err := c.Requests.CentralizedEnroll(profile, subject, sans, labels, keyType, &owner, team)
-	if err != nil {
-		return nil, diag.FromErr(err)
+	// Get contact email
+	contactEmail, hasContactEmail := d.GetOk("contact_email")
+	if hasContactEmail {
+		template.ContactEmail = &types.ContactEmailElement{Value: &types.String{String: contactEmail.(string)}}
 	}
 
-	d.SetId(res.Certificate.Id)
-
-	return res, diags
+	return template, nil
 }
