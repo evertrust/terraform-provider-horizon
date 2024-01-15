@@ -5,8 +5,8 @@ import (
 	"github.com/evertrust/horizon-go/types"
 	"time"
 
-	"evertrust.fr/horizon/utils"
 	"github.com/evertrust/horizon-go"
+	"github.com/evertrust/terraform-provider-horizon/utils"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
