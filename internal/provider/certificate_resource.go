@@ -426,39 +426,43 @@ func enrollTemplateFromResource(c *horizon.Horizon, d CertificateResourceModel) 
 		}
 
 		// Set Subject
-		elements := make([]attr.Value, 0, len(d.Subject.Elements()))
-		diag := d.Subject.ElementsAs(context.Background(), &elements, false)
+		dnElements := make([]attr.Value, 0, len(d.Subject.Elements()))
+		diag := d.Subject.ElementsAs(context.Background(), &dnElements, false)
 		if diag.HasError() {
-			return nil, errors.New("failed to get subject elements")
+			return nil, errors.New("failed to unmarshall subject elements")
 		}
 
 		var subject []horizontypes.IndexedDNElement
-		for _, dnElement := range elements {
-			toto := dnElement.(basetypes.ObjectValue)
-			totoAttr := toto.Attributes()
+		for _, dnElement := range dnElements {
+			value := dnElement.(basetypes.ObjectValue).Attributes()
 			subject = append(subject, horizontypes.IndexedDNElement{
-				Element: totoAttr["element"].String(),
-				Type:    dn["type"].(string),
-				Value:   dn["value"].(string),
+				Element: value["element"].String(),
+				Type:    value["type"].String(),
+				Value:   value["value"].String(),
 			})
 		}
 		template.Subject = subject
 
 		// Set SANs
-		//var sans []horizontypes.ListSANElement
-		sans := make([]horizontypes.ListSANElement, 0, len(d.Sans.Elements()))
+		sanElements := make([]attr.Value, 0, len(d.Sans.Elements()))
+		diag = d.Sans.ElementsAs(context.Background(), &sanElements, false)
+		if diag.HasError() {
+			return nil, errors.New("failed to unmarshall san elements")
+		}
+
+		var sans []horizontypes.ListSANElement
 		d.Sans.ElementsAs(context.Background(), &sans, false)
-		//for _, sanElement := range sanElements {
-		//	san := sanElement.(map[string]interface{})
-		//	values := []string{}
-		//	for _, value := range san["value"].([]interface{}) {
-		//		values = append(values, value.(string))
-		//	}
-		//	sans = append(sans, horizontypes.ListSANElement{
-		//		Type:  san["type"].(string),
-		//		Value: values,
-		//	})
-		//}
+		for _, sanElement := range sanElements {
+			san := sanElement.(basetypes.ObjectValue).Attributes()
+			values := []string{}
+			for _, value := range san["value"].(basetypes.ObjectValue).Attributes() {
+				values = append(values, value.String())
+			}
+			sans = append(sans, horizontypes.ListSANElement{
+				Type:  san["type"].String(),
+				Value: values,
+			})
+		}
 		template.Sans = sans
 
 		template.KeyType = d.KeyType.ValueString()
@@ -466,14 +470,18 @@ func enrollTemplateFromResource(c *horizon.Horizon, d CertificateResourceModel) 
 	}
 
 	// Set Labels
+	labelElements := make([]attr.Value, 0, len(d.Labels.Elements()))
+	diag := d.Labels.ElementsAs(context.Background(), &labelElements, false)
+	if diag.HasError() {
+		return nil, errors.New("failed to unmarshall label elements")
+	}
+
 	var labels []horizontypes.LabelElement
-	var labelElements map[string]interface{}
-	d.Labels.ElementsAs(context.Background(), &labelElements, false)
 	for _, labelElement := range labelElements {
-		label := labelElement.(map[string]interface{})
+		label := labelElement.(basetypes.ObjectValue).Attributes()
 		labels = append(labels, horizontypes.LabelElement{
-			Label: label["label"].(string),
-			Value: &horizontypes.String{String: label["value"].(string)},
+			Label: label["label"].String(),
+			Value: &horizontypes.String{String: label["value"].String()},
 		})
 	}
 	template.Labels = labels
