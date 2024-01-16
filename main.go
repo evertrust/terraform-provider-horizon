@@ -1,7 +1,7 @@
 package main
 
 import (
-	"evertrust.fr/horizon/horizon"
+	"github.com/evertrust/terraform-provider-horizon/horizon"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
 )
