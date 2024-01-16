@@ -2,10 +2,10 @@ package horizon
 
 import (
 	"context"
-	"github.com/evertrust/horizon-go/types"
 	"time"
 
-	"github.com/evertrust/horizon-go"
+	horizontypes "github.com/evertrust/horizon-go"
+	horizon "github.com/evertrust/horizon-go/client"
 	"github.com/evertrust/terraform-provider-horizon/utils"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -219,7 +219,7 @@ func resourceCertificate() *schema.Resource {
 }
 
 func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
+	c := m.(*horizon.Client)
 
 	var diags diag.Diagnostics
 
@@ -228,7 +228,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 		return diag.FromErr(err)
 	}
 
-	resp, err := c.Requests.NewEnrollRequest(types.WebRAEnrollRequestParams{
+	resp, err := c.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
 		Profile:  d.Get("profile").(string),
 		Template: template,
 		Password: d.Get("password").(string),
@@ -252,7 +252,7 @@ func resourceCertificateCreate(ctx context.Context, d *schema.ResourceData, m in
 }
 
 func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
+	c := m.(*horizon.Client)
 
 	var diags diag.Diagnostics
 
@@ -287,15 +287,15 @@ func resourceCertificateRead(ctx context.Context, d *schema.ResourceData, m inte
 }
 
 func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
+	c := m.(*horizon.Client)
 
 	var diags diag.Diagnostics
 
 	// Revoke the old certificate
 	certificate, ok := d.GetOk("certificate")
 	if ok {
-		_, err := c.Requests.NewRevokeRequest(types.WebRARevokeRequestParams{
-			RevocationReason: types.Superseded,
+		_, err := c.Requests.NewRevokeRequest(horizontypes.WebRARevokeRequestParams{
+			RevocationReason: horizontypes.Superseded,
 			CertificatePEM:   certificate.(string),
 		})
 		if err != nil {
@@ -308,7 +308,7 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 		return diag.FromErr(err)
 	}
 
-	resp, err := c.Requests.NewEnrollRequest(types.WebRAEnrollRequestParams{
+	resp, err := c.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
 		Profile:  d.Get("profile").(string),
 		Template: template,
 		Password: d.Get("password").(string),
@@ -332,15 +332,15 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 }
 
 func resourceCertificateDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*horizon.Horizon)
+	c := m.(*horizon.Client)
 
 	var diags diag.Diagnostics
 
 	if d.Get("revoke_on_delete").(bool) {
 		certificate, ok := d.GetOk("certificate")
 		if ok {
-			_, err := c.Requests.NewRevokeRequest(types.WebRARevokeRequestParams{
-				RevocationReason: types.CessationOfOperation,
+			_, err := c.Requests.NewRevokeRequest(horizontypes.WebRARevokeRequestParams{
+				RevocationReason: horizontypes.CessationOfOperation,
 				CertificatePEM:   certificate.(string),
 			})
 			if err != nil {

@@ -2,12 +2,12 @@ package utils
 
 import (
 	"errors"
-	"github.com/evertrust/horizon-go"
-	"github.com/evertrust/horizon-go/types"
+	horizontypes "github.com/evertrust/horizon-go"
+	horizon "github.com/evertrust/horizon-go/client"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
-func FillCertificateSchema(d *schema.ResourceData, cert *types.Certificate) {
+func FillCertificateSchema(d *schema.ResourceData, cert *horizontypes.Certificate) {
 	d.SetId(cert.Id)
 	d.Set("profile", cert.Profile)
 	d.Set("owner", cert.Owner)
@@ -26,8 +26,8 @@ func FillCertificateSchema(d *schema.ResourceData, cert *types.Certificate) {
 	d.Set("signing_algorithm", cert.SigningAlgorithm)
 }
 
-func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*types.WebRAEnrollTemplate, error) {
-	var template *types.WebRAEnrollTemplate
+func EnrollTemplateFromResource(c *horizon.Client, d *schema.ResourceData) (*horizontypes.WebRAEnrollTemplate, error) {
+	var template *horizontypes.WebRAEnrollTemplate
 
 	csr, isDecentralized := d.GetOk("csr")
 
@@ -39,7 +39,7 @@ func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*ty
 
 		var err error
 
-		template, err = c.Requests.GetEnrollTemplate(types.WebRAEnrollTemplateParams{
+		template, err = c.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
 			Profile: d.Get("profile").(string),
 			Csr:     csr.(string),
 		})
@@ -50,7 +50,7 @@ func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*ty
 
 	} else {
 		var err error
-		template, err = c.Requests.GetEnrollTemplate(types.WebRAEnrollTemplateParams{
+		template, err = c.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
 			Profile: d.Get("profile").(string),
 		})
 
@@ -59,11 +59,11 @@ func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*ty
 		}
 
 		// Set Subject
-		var subject []types.IndexedDNElement
+		var subject []horizontypes.IndexedDNElement
 		dnElements := d.Get("subject").(*schema.Set)
 		for _, dnElement := range dnElements.List() {
 			dn := dnElement.(map[string]interface{})
-			subject = append(subject, types.IndexedDNElement{
+			subject = append(subject, horizontypes.IndexedDNElement{
 				Element: dn["element"].(string),
 				Type:    dn["type"].(string),
 				Value:   dn["value"].(string),
@@ -72,7 +72,7 @@ func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*ty
 		template.Subject = subject
 
 		// Set SANs
-		var sans []types.ListSANElement
+		var sans []horizontypes.ListSANElement
 		sanElements := d.Get("sans").(*schema.Set)
 		for _, sanElement := range sanElements.List() {
 			san := sanElement.(map[string]interface{})
@@ -80,7 +80,7 @@ func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*ty
 			for _, value := range san["value"].([]interface{}) {
 				values = append(values, value.(string))
 			}
-			sans = append(sans, types.ListSANElement{
+			sans = append(sans, horizontypes.ListSANElement{
 				Type:  san["type"].(string),
 				Value: values,
 			})
@@ -95,13 +95,13 @@ func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*ty
 	}
 
 	// Set Labels
-	var labels []types.LabelElement
+	var labels []horizontypes.LabelElement
 	labelElements := d.Get("labels").(*schema.Set)
 	for _, labelElement := range labelElements.List() {
 		label := labelElement.(map[string]interface{})
-		labels = append(labels, types.LabelElement{
+		labels = append(labels, horizontypes.LabelElement{
 			Label: label["label"].(string),
-			Value: &types.String{String: label["value"].(string)},
+			Value: &horizontypes.String{String: label["value"].(string)},
 		})
 	}
 	template.Labels = labels
@@ -109,19 +109,19 @@ func EnrollTemplateFromResource(c *horizon.Horizon, d *schema.ResourceData) (*ty
 	// Get owner
 	owner, hasOwner := d.GetOk("owner")
 	if hasOwner {
-		template.Owner = &types.OwnerElement{Value: &types.String{String: owner.(string)}}
+		template.Owner = &horizontypes.OwnerElement{Value: &horizontypes.String{String: owner.(string)}}
 	}
 
 	// Get team
 	team, hasTeam := d.GetOk("team")
 	if hasTeam {
-		template.Team = &types.TeamElement{Value: &types.String{String: team.(string)}}
+		template.Team = &horizontypes.TeamElement{Value: &horizontypes.String{String: team.(string)}}
 	}
 
 	// Get contact email
 	contactEmail, hasContactEmail := d.GetOk("contact_email")
 	if hasContactEmail {
-		template.ContactEmail = &types.ContactEmailElement{Value: &types.String{String: contactEmail.(string)}}
+		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: contactEmail.(string)}}
 	}
 
 	return template, nil

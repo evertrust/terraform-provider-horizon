@@ -6,7 +6,7 @@ import (
 	"crypto/x509"
 	"net/url"
 
-	"github.com/evertrust/horizon-go"
+	horizon "github.com/evertrust/horizon-go/client"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -65,24 +65,24 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	// Warning or errors can be collected in a slice type
 	var diags diag.Diagnostics
 
-	client := horizon.New(horizon.NewHttpClient())
+	client := horizon.New(nil)
 
 	endpoint, err := url.Parse(d.Get("endpoint").(string))
 	if err != nil {
 		return nil, diag.FromErr(err)
 	}
-	client.Http.SetBaseUrl(*endpoint)
+	client.SetBaseUrl(*endpoint)
 
 	caBundle, hasCaBundle := d.GetOk("ca_bundle_pem")
 	if hasCaBundle {
 		pool := x509.NewCertPool()
 		pool.AppendCertsFromPEM([]byte(caBundle.(string)))
-		client.Http.SetCaBundle(pool)
+		client.SetCaBundle(pool)
 	}
 
 	skipTlsVerify := d.Get("skip_tls_verify").(bool)
 	if skipTlsVerify {
-		client.Http.SkipTLSVerify()
+		client.SkipTLSVerify()
 	}
 
 	username, hasUsername := d.GetOk("username")
@@ -98,7 +98,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 			})
 			return nil, diags
 		}
-		client.Http.SetPasswordAuth(username.(string), password.(string))
+		client.SetPasswordAuth(username.(string), password.(string))
 	} else if hasCert {
 		if !hasKey {
 			diags = append(diags, diag.Diagnostic{
@@ -116,7 +116,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 			})
 			return nil, diags
 		}
-		client.Http.SetCertAuth(parsedCert)
+		client.SetCertAuth(parsedCert)
 	} else {
 		diags = append(diags, diag.Diagnostic{
 			Severity: diag.Error,
