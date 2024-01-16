@@ -3,6 +3,7 @@ package horizon
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"net/url"
 
 	"github.com/evertrust/horizon-go"
@@ -40,6 +41,17 @@ func Provider() *schema.Provider {
 				Optional:    true,
 				Sensitive:   true,
 			},
+			"ca_bundle_pem": {
+				Description: "PEM-encoded CA bundle to use for TLS verification. Optional.",
+				Type:        schema.TypeString,
+				Optional:    true,
+			},
+			"skip_tls_verify": {
+				Description: "Skip TLS verification. Not recommended in production. Optional.",
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
 			"horizon_certificate": resourceCertificate(),
@@ -60,6 +72,18 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 		return nil, diag.FromErr(err)
 	}
 	client.Http.SetBaseUrl(*endpoint)
+
+	caBundle, hasCaBundle := d.GetOk("ca_bundle_pem")
+	if hasCaBundle {
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM([]byte(caBundle.(string)))
+		client.Http.SetCaBundle(pool)
+	}
+
+	skipTlsVerify := d.Get("skip_tls_verify").(bool)
+	if skipTlsVerify {
+		client.Http.SkipTLSVerify()
+	}
 
 	username, hasUsername := d.GetOk("username")
 	password, hasPassword := d.GetOk("password")

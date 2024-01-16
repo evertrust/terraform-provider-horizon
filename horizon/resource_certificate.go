@@ -43,7 +43,7 @@ func resourceCertificate() *schema.Resource {
 				Computed:    true,
 			},
 			"certificate": {
-				Description: "Enrolled certificate.",
+				Description: "PEM-encoded enrolled certificate.",
 				Type:        schema.TypeString,
 				Optional:    false,
 				Computed:    true,
@@ -55,7 +55,7 @@ func resourceCertificate() *schema.Resource {
 				Computed:    true,
 			},
 			"self_signed": {
-				Description: "",
+				Description: "Whether the certificate is self-signed or not.",
 				Type:        schema.TypeBool,
 				Optional:    false,
 				Computed:    true,
@@ -67,7 +67,7 @@ func resourceCertificate() *schema.Resource {
 				Computed:    true,
 			},
 			"dn": {
-				Description: "certificate DN.",
+				Description: "Certificate DN.",
 				Type:        schema.TypeString,
 				Optional:    false,
 				Computed:    true,
