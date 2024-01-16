@@ -92,15 +92,15 @@ resource "horizon_certificate" "example" {
 
 ### Read-Only
 
-- `certificate` (String) Enrolled certificate.
-- `dn` (String) certificate DN.
+- `certificate` (String) PEM-encoded enrolled certificate.
+- `dn` (String) Certificate DN.
 - `id` (String) The ID of this resource.
 - `issuer` (String) Certificate issuer.
 - `not_after` (Number) Certificate expiration date.
 - `not_before` (Number) Certificate creation date.
 - `public_key_thumbprint` (String) Certificate publicKeyThumbprint.
 - `revocation_date` (Number) Certificate revocation date.
-- `self_signed` (Boolean)
+- `self_signed` (Boolean) Whether the certificate is self-signed or not.
 - `serial` (String) Certificate serial.
 - `signing_algorithm` (String) Certificate signing algorithm.
 - `thumbprint` (String) Certificate thumbprint.
@@ -119,7 +119,7 @@ Required:
 
 Required:
 
-- `type` (String) SAN element type.
+- `type` (String) SAN element type. Can be: "RFC822NAME", "DNSNAME", "URI", "IPADDRESS", "OTHERNAME_UPN", "OTHERNAME_GUID".
 - `value` (List of String) SAN element values.
 
 

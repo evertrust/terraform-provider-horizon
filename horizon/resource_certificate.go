@@ -105,7 +105,7 @@ func resourceCertificate() *schema.Resource {
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"type": {
-							Description: "SAN element type.",
+							Description: "SAN element type. Can be: \"RFC822NAME\", \"DNSNAME\", \"URI\", \"IPADDRESS\", \"OTHERNAME_UPN\", \"OTHERNAME_GUID\".",
 							Type:        schema.TypeString,
 							Required:    true,
 						},

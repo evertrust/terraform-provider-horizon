@@ -45,7 +45,9 @@ provider "horizon" {
 
 ### Optional
 
+- `ca_bundle_pem` (String) PEM-encoded CA bundle to use for TLS verification. Optional.
 - `client_cert_pem` (String) Client certificate to use for authentication. Required when client_key_pem is provided.
 - `client_key_pem` (String, Sensitive) Private key associated with the client certificate. Required when client_cert_pem is provided.
 - `password` (String, Sensitive) Local account password. Required when username is provided.
+- `skip_tls_verify` (Boolean) Skip TLS verification. Not recommended in production. Optional.
 - `username` (String) Local account identifier. Required when password is provided.
