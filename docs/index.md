@@ -11,20 +11,24 @@ The Horizon Provider is used to manage the life cycle of certificates.
 
 ## Example Usage
 
-You can authent with credentials.
+You can authenticate with credentials
 
 ```terraform
 provider "horizon" {
-  x_api_id  = "example"
-  x_api_key = "example"
-  endpoint  = "https://horizon.example"
+  alias    = "with-creds"
+  endpoint = "https://horizon.example"
+
+  username = "example"
+  password = "example"
 }
 ```
 
-Or with a certificate and a key.
+Or with a certificate and a key
 
 ```terraform
 provider "horizon" {
+  alias = "with-cert"
+
   endpoint = "https://horizon.company.com"
   cert     = "----BEGIN CERTIFICATE-----\n...\n----END CERTIFICATE-----\n"
   key      = "----BEGIN RSA PRIVATE KEY-----\n...\n----END RSA PRIVATE KEY-----"

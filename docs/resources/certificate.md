@@ -9,9 +9,9 @@ description: |-
 
 Provides a Certificate resource. This resource allow you to manage the life cycle of a certificate.
 
-This resource creates and enroll a certificate on Horizon, with centralized or decentralized method. 
+This resource enrolls a certificate on Horizon, either via centralized or decentralized enrollment.
 To enroll with the decentralized method you just need to edit the `csr` argument.
-The argument `key_file` is required for a centralized enroll, but forbiden in decentralized enroll.
+The argument `key_file` is required for a centralized enroll, but forbidden in decentralized enroll.
 
 ## Example Usage
 
@@ -20,20 +20,19 @@ The argument `key_file` is required for a centralized enroll, but forbiden in de
 ```terraform
 resource "horizon_certificate" "example" {
   subject {
-    element = "CN"
+    element = "cn.1"
     type    = "CN"
-    value   = "example.terraform.cn"
+    value   = "example.org"
   }
   sans {
-    element = "DNSNAME"
     type    = "DNSNAME"
-    value   = "example.terraform.dnsname"
+    value   = ["example.org"]
   }
   labels {
     label   = "label"
     value   = "example"
   }
-  profile   = "Enrollment Profile"
+  profile   = "DefaultProfile"
   key_type  = "rsa-2048"  
   revoke_on_delete = false
 }

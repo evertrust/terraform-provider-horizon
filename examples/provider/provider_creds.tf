@@ -1,5 +1,7 @@
 provider "horizon" {
-  x_api_id  = "example"
-  x_api_key = "example"
-  endpoint  = "https://horizon.example"
+  alias    = "with-creds"
+  endpoint = "https://horizon.example"
+
+  username = "example"
+  password = "example"
 }
