@@ -45,7 +45,6 @@ func resourceCertificate() *schema.Resource {
 			"certificate": {
 				Description: "PEM-encoded enrolled certificate.",
 				Type:        schema.TypeString,
-				Optional:    false,
 				Computed:    true,
 			},
 			"thumbprint": {
@@ -83,16 +82,19 @@ func resourceCertificate() *schema.Resource {
 							Description: "Subject element.",
 							Type:        schema.TypeString,
 							Required:    true,
+							ForceNew:    true,
 						},
 						"type": {
 							Description: "Subject element type.",
 							Type:        schema.TypeString,
 							Required:    true,
+							ForceNew:    true,
 						},
 						"value": {
 							Description: "Subject element value.",
 							Type:        schema.TypeString,
 							Required:    true,
+							ForceNew:    true,
 						},
 					},
 				},
@@ -108,6 +110,7 @@ func resourceCertificate() *schema.Resource {
 							Description: "SAN element type. Can be: \"RFC822NAME\", \"DNSNAME\", \"URI\", \"IPADDRESS\", \"OTHERNAME_UPN\", \"OTHERNAME_GUID\".",
 							Type:        schema.TypeString,
 							Required:    true,
+							ForceNew:    true,
 						},
 						"value": {
 							Description: "SAN element values.",
@@ -116,6 +119,7 @@ func resourceCertificate() *schema.Resource {
 								Type: schema.TypeString,
 							},
 							Required: true,
+							ForceNew: true,
 						},
 					},
 				},
@@ -291,27 +295,14 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 
 	var diags diag.Diagnostics
 
-	// Revoke the old certificate
-	certificate, ok := d.GetOk("certificate")
-	if ok {
-		_, err := c.Requests.NewRevokeRequest(horizontypes.WebRARevokeRequestParams{
-			RevocationReason: horizontypes.Superseded,
-			CertificatePEM:   certificate.(string),
-		})
-		if err != nil {
-			return diag.FromErr(err)
-		}
-	}
-
-	template, err := utils.EnrollTemplateFromResource(c, d)
+	template, err := utils.UpdateTemplateFromResource(c, d)
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
-	resp, err := c.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
-		Profile:  d.Get("profile").(string),
-		Template: template,
-		Password: d.Get("password").(string),
+	resp, err := c.Requests.NewUpdateRequest(horizontypes.WebRAUpdateRequestParams{
+		CertificateId: d.Id(),
+		Template:      template,
 	})
 
 	if err != nil {
@@ -319,14 +310,6 @@ func resourceCertificateUpdate(ctx context.Context, d *schema.ResourceData, m in
 	}
 
 	utils.FillCertificateSchema(d, resp.Certificate)
-
-	if resp.Pkcs12 != nil {
-		d.Set("pkcs12", resp.Pkcs12.Value)
-	}
-
-	if resp.Password != nil {
-		d.Set("password", resp.Password.Value)
-	}
 
 	return diags
 }

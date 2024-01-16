@@ -126,3 +126,47 @@ func EnrollTemplateFromResource(c *horizon.Client, d *schema.ResourceData) (*hor
 
 	return template, nil
 }
+
+func UpdateTemplateFromResource(c *horizon.Client, d *schema.ResourceData) (*horizontypes.WebRAUpdateTemplate, error) {
+	var template *horizontypes.WebRAUpdateTemplate
+
+	template, err := c.Requests.GetUpdateTemplate(horizontypes.WebRAUpdateTemplateParams{
+		CertificateId: d.Id(),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Set Labels
+	var labels []horizontypes.LabelElement
+	labelElements := d.Get("labels").(*schema.Set)
+	for _, labelElement := range labelElements.List() {
+		label := labelElement.(map[string]interface{})
+		labels = append(labels, horizontypes.LabelElement{
+			Label: label["label"].(string),
+			Value: &horizontypes.String{String: label["value"].(string)},
+		})
+	}
+	template.Labels = labels
+
+	// Get owner
+	owner, hasOwner := d.GetOk("owner")
+	if hasOwner {
+		template.Owner = &horizontypes.OwnerElement{Value: &horizontypes.String{String: owner.(string)}}
+	}
+
+	// Get team
+	team, hasTeam := d.GetOk("team")
+	if hasTeam {
+		template.Team = &horizontypes.TeamElement{Value: &horizontypes.String{String: team.(string)}}
+	}
+
+	// Get contact email
+	contactEmail, hasContactEmail := d.GetOk("contact_email")
+	if hasContactEmail {
+		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: contactEmail.(string)}}
+	}
+
+	return template, nil
+}
