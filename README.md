@@ -1,29 +1,49 @@
-# horizon-provider-terraform
+# Terraform Provider: Horizon
 
-The Horizon Provider allows [Terraform](https://terraform.io) to manage [Horizon](https://evertrust.fr/horizon) resources.
+The Horizon Provider allows [Terraform](https://terraform.io) to manage [Horizon](https://evertrust.fr/horizon)
+certificates and their lifecycle.
 
-* [Evertrust website](https://evertrust.fr)
+## Quick Start
 
-## Quick Starts
+* [Provider Documentation](https://registry.terraform.io/providers/EverTrust/horizon/latest)
+* [Horizon Documentation](https://docs.evertrust.fr/horizon)
+* [Evertrust Website](https://evertrust.fr)
 
-* [Provider Documentation](https://github.com/EverTrust/terraform-provider-horizon/tree/main/docs)
+## Compatibility
 
-## Provider Usage
+Compatibility between the provider and Horizon versions is as follows:
 
-The Horizon Provider allow you to manage the life cycle of a certificate. From the creation to the revocation.
+| Provider version | Horizon version |
+|:----------------:|:---------------:|
+|    `>= 0.1.x`    |     `<=2.3`     |
+|    `>= 0.2.x`    |     `>=2.4`     |
 
-### Upgrading the provider 
+## Development
 
-The Horizon Provider doesn't upgrade automatically once you've started using it. After a new release you can run 
-```bash
-make init
-```
-to upgrade to the latest stable version of the Horizon Provider.
+### Requirements
 
-### Upgrading horizon-go
+* [Go](https://golang.org/doc/install) >= 1.21
+* [Terraform](https://www.terraform.io/downloads.html) >= 0.13
+* An Horizon instance
 
-The Go SDK horizon-go may be updated and cause some errors, or will not allow you to exploit some features. In that case youcan run 
-```bash
-make update
-```
-to upgrade to the latest stable version of horizon-go.
+### Building The Provider
+
+To build and test the provider, follow the steps
+described [here](https://developer.hashicorp.com/terraform/plugin/debugging). You have two options:
+
+- Use Development Overrides if you need to quickly test out a change to the provider for a single configuration. This is
+  the fastest way to test a change.
+- Use Debugger-based Debugging which will allow you to run the provider separately from Terraform and attach a debugger
+  to it. This is the best way to test a change thoroughly.
+
+## Releasing
+
+The release process is automated via GitHub Actions, which can be audited int
+the [release.yml](./.github/workflows/release.yml) file.
+
+To release a new version, you need to create a new tag. The tag name must follow
+the [Semantic Versioning](https://semver.org/) convention, starting with the letter `v`.
+
+## License
+
+[GNU GPL v3](./LICENSE)

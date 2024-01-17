@@ -18,7 +18,7 @@ resource "horizon_certificate" "example_centralized" {
   profile          = "EnrollmentProfile"
   key_type         = "rsa-2048"
   revoke_on_delete = true
-  renew_before     = 500
+  renew_before     = 30
 
   subject = [
     {
