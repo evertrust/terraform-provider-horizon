@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"github.com/evertrust/horizon-go"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -12,24 +14,26 @@ import (
 	"net/url"
 )
 
-// Ensure HorizonProvider satisfies various provider_with_certificate_auth interfaces.
+// Ensure HorizonProvider satisfies various provider interfaces.
 var _ provider.Provider = &HorizonProvider{}
 
-// HorizonProvider defines the provider_with_certificate_auth implementation.
+// HorizonProvider defines the provider implementation.
 type HorizonProvider struct {
-	// version is set to the provider_with_certificate_auth version on release, "dev" when the
-	// provider_with_certificate_auth is built and ran locally, and "test" when running acceptance
+	// version is set to the provider version on release, "dev" when the
+	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
 }
 
-// HorizonProviderModel describes the provider_with_certificate_auth data model.
-type HorizonProviderModel struct {
+// horizonProviderModel describes the provider data model.
+type horizonProviderModel struct {
 	Endpoint      types.String `tfsdk:"endpoint"`
 	Username      types.String `tfsdk:"username"`
 	Password      types.String `tfsdk:"password"`
 	ClientCertPem types.String `tfsdk:"client_cert_pem"`
 	ClientKeyPem  types.String `tfsdk:"client_key_pem"`
+	SkipTlsVerify types.Bool   `tfsdk:"skip_tls_verify"`
+	CaBundlePem   types.String `tfsdk:"ca_bundle_pem"`
 }
 
 func (p *HorizonProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -39,6 +43,7 @@ func (p *HorizonProvider) Metadata(ctx context.Context, req provider.MetadataReq
 
 func (p *HorizonProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "The Horizon provider is used to interact with the Horizon API. It can manage the lifecycle of certificates and other resources.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
 				MarkdownDescription: "Horizon URL, with protocol (https://) and without trailing slash. Required.",
@@ -60,12 +65,20 @@ func (p *HorizonProvider) Schema(ctx context.Context, req provider.SchemaRequest
 				MarkdownDescription: "Private key associated with the client certificate. Required when client_cert_pem is provided.",
 				Optional:            true,
 			},
+			"skip_tls_verify": schema.BoolAttribute{
+				MarkdownDescription: "Skip TLS certificate verification. Optional, default to false. Note that this is not recommended in production.",
+				Optional:            true,
+			},
+			"ca_bundle_pem": schema.StringAttribute{
+				MarkdownDescription: "PEM-encoded CA bundle to use for TLS certificate verification. Optional.",
+				Optional:            true,
+			},
 		},
 	}
 }
 
 func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	var data HorizonProviderModel
+	var data horizonProviderModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
@@ -81,6 +94,16 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 	client.Http.SetBaseUrl(*endpoint)
+
+	if data.SkipTlsVerify.ValueBool() {
+		client.Http.SkipTLSVerify()
+	}
+
+	if !data.CaBundlePem.IsNull() {
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM([]byte(data.CaBundlePem.ValueString()))
+		client.Http.SetCaBundle(pool)
+	}
 
 	if !data.Username.IsNull() {
 		if data.Password.IsNull() {
@@ -118,6 +141,53 @@ func (p *HorizonProvider) Resources(ctx context.Context) []func() resource.Resou
 func (p *HorizonProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		//NewExampleDataSource,
+	}
+}
+
+func (p HorizonProvider) ValidateConfig(ctx context.Context, req provider.ValidateConfigRequest, resp *provider.ValidateConfigResponse) {
+	var data horizonProviderModel
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !data.Username.IsNull() {
+		// We assume we're in a creds auth mode, so password is required.
+		if data.Password.IsNull() {
+			resp.Diagnostics.AddAttributeError(path.Root("username"), "Password is required when username is provided.", "")
+			return
+		}
+
+		if !data.ClientCertPem.IsNull() {
+			resp.Diagnostics.AddAttributeError(path.Root("client_cert_pem"), "Client certificate is not supported when username is provided.", "")
+			return
+		}
+
+		if !data.ClientKeyPem.IsNull() {
+			resp.Diagnostics.AddAttributeError(path.Root("client_key_pem"), "Client key is not supported when username is provided.", "")
+			return
+		}
+	} else if !data.ClientCertPem.IsNull() {
+		// We assume we're in a cert auth mode, so client_key_pem is required.
+		if data.ClientKeyPem.IsNull() {
+			resp.Diagnostics.AddAttributeError(path.Root("client_cert_pem"), "client_key_pem is required when client_cert_pem is provided.", "")
+			return
+		}
+
+		if !data.Password.IsNull() {
+			resp.Diagnostics.AddAttributeError(path.Root("password"), "Password is not supported when client_cert_pem is provided.", "")
+			return
+		}
+	} else {
+		resp.Diagnostics.AddError("No authentication method provided", "Please provide either username/password or client_cert_pem/client_key_pem.")
+		return
+	}
+
+	if !data.SkipTlsVerify.IsNull() && data.SkipTlsVerify.ValueBool() && !data.CaBundlePem.IsNull() {
+		resp.Diagnostics.AddAttributeWarning(path.Root("skip_tls_verify"), "skip_tls_verify is not recommended when ca_bundle_pem is provided.", "")
+		return
 	}
 }
 

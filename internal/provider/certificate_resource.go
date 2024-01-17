@@ -2,22 +2,21 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/evertrust/horizon-go"
 	horizontypes "github.com/evertrust/horizon-go/types"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"time"
 )
 
-// Ensure provider_with_certificate_auth defined types fully satisfy framework interfaces.
+// Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &CertificateResource{}
 var _ resource.ResourceWithImportState = &CertificateResource{}
 
@@ -30,8 +29,24 @@ type CertificateResource struct {
 	client *horizon.Horizon
 }
 
-// CertificateResourceModel describes the resource data model.
-type CertificateResourceModel struct {
+type certificateSubjectModel struct {
+	Element types.String `tfsdk:"element"`
+	Type    types.String `tfsdk:"type"`
+	Value   types.String `tfsdk:"value"`
+}
+
+type certificateSanModel struct {
+	Type  types.String   `tfsdk:"type"`
+	Value []types.String `tfsdk:"value"`
+}
+
+type certificateLabelModel struct {
+	Label types.String `tfsdk:"label"`
+	Value types.String `tfsdk:"value"`
+}
+
+// certificateResourceModel describes the resource data model.
+type certificateResourceModel struct {
 	Id           types.String `tfsdk:"id"`
 	Profile      types.String `tfsdk:"profile"`
 	Owner        types.String `tfsdk:"owner"`
@@ -68,48 +83,56 @@ func (r *CertificateResource) Metadata(ctx context.Context, req resource.Metadat
 
 func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Certificate resource",
-		Description:         "Provides a Certificate resource. This resource allow you to manage the life cycle of a certificate.",
-
+		Description: "Provides a Certificate resource. This resource allow you to manage the lifecycle of a certificate. To enroll a certificate, you can either provide a CSR (Certificate Signing Request), or a subject and a list of SANs. If you provide a CSR, the enrollment will be decentralized. If you provide a subject and SANs, the enrollment will be centralized.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Identifier",
+				Computed:    true,
+				Description: "Internal certificate identifier.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"profile": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Profile where the certificate will be enrolled into.",
+				Required:    true,
+				Description: "Profile where the certificate will be enrolled into.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"subject": schema.SetNestedAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "Subject elements of the certificate. This is ignored when csr is provided. ",
 				NestedObject: schema.NestedAttributeObject{
+					PlanModifiers: []planmodifier.Object{
+						objectplanmodifier.RequiresReplace(),
+					},
 					Attributes: map[string]schema.Attribute{
 						"element": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "Subject element.",
+							Required:    true,
+							Description: "Subject element, followed by a dot and the index of the element. For example: `cn.1` for the first common name.",
 						},
 						"type": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "Subject element type.",
+							Required:    true,
+							Description: "Subject element type. For example: `CN` for common name.",
 						},
 						"value": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "Subject element value.",
+							Required:    true,
+							Description: "Subject element value. For example: `www.example.com` for common name.",
 						},
 					},
 				},
 			},
 			"sans": schema.SetNestedAttribute{
-				Optional: true,
+				Description: "Subject alternative names of the certificate. This is ignored when csr is provided.",
+				Optional:    true,
 				NestedObject: schema.NestedAttributeObject{
+					PlanModifiers: []planmodifier.Object{
+						objectplanmodifier.RequiresReplace(),
+					},
 					Attributes: map[string]schema.Attribute{
 						"type": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "SAN type.",
+							Required:    true,
+							Description: "SAN type. Accepted values are: `RFC822NAME`, `DNSNAME`, `URI`, `IPADDRESS`, `OTHERNAME_UPN`, `OTHERNAME_GUID`",
 						},
 						"value": schema.SetAttribute{
 							Required:            true,
@@ -120,109 +143,113 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				},
 			},
 			"labels": schema.SetNestedAttribute{
-				Optional: true,
+				Description: "Labels of the certificate, used to enrich the certificate metadata on Horizon.",
+				Optional:    true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"label": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "Label name.",
+							Required:    true,
+							Description: "Label name.",
 						},
 						"value": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "Label value.",
+							Required:    true,
+							Description: "Label value.",
 						},
 					},
 				},
 			},
 			"owner": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "Owner of the certificate.",
+				Optional:    true,
+				Description: "Owner associated with the certificate.",
 			},
 			"team": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "Team of the certificate.",
+				Optional:    true,
+				Description: "Team associated with the certificate.",
 			},
 			"contact_email": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "Contact email of the certificate.",
+				Optional:    true,
+				Description: "Contact email associated with the certificate.",
 			},
 			"serial": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Serial number of the certificate.",
+				Computed:    true,
+				Description: "Serial number of the certificate.",
 			},
 			"issuer": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Issuer of the certificate.",
+				Computed:    true,
+				Description: "Issuer DN of the certificate.",
 			},
 			"not_before": schema.Int64Attribute{
-				Computed:            true,
-				MarkdownDescription: "Not before date of the certificate.",
+				Computed:    true,
+				Description: "NotBefore attribute of the certificate.",
 			},
 			"not_after": schema.Int64Attribute{
-				Computed:            true,
-				MarkdownDescription: "Not after date of the certificate.",
+				Computed:    true,
+				Description: "NotAfter attribute (expiration date) of the certificate.",
 			},
 			"revocation_date": schema.Int64Attribute{
-				Computed:            true,
-				MarkdownDescription: "Revocation date of the certificate.",
+				Computed:    true,
+				Description: "Revocation date of the certificate. Empty when the certificate is not revoked.",
 			},
 			"key_type": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "Key type of the certificate.",
+				Optional:    true,
+				Computed:    true,
+				Description: "Key type of the certificate. For example: `rsa-2048`.",
 			},
 			"signing_algorithm": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Signing algorithm of the certificate.",
+				Computed:    true,
+				Description: "Signing algorithm of the certificate. For example: `SHA256WITHRSA`",
 			},
 			"revoke_on_delete": schema.BoolAttribute{
-				MarkdownDescription: "Revoke certificate on delete.",
-				Optional:            true,
+				Description: "Whether to revoke certificate when it is removed from the Terraform state or not.",
+				Optional:    true,
 			},
 			"renew_before": schema.Int64Attribute{
-				MarkdownDescription: "Renew certificate before expiration.",
-				Optional:            true,
+				Description: "How many days to renew the certificate before it expires. Certificate renewals rely on the Terraform workspace being run regularly. If the workspace is not run, the certificate will expire.",
+				Optional:    true,
 			},
 			"csr": schema.StringAttribute{
-				MarkdownDescription: "CSR to enroll the certificate.",
-				Optional:            true,
+				Description: "A CSR (Certificate Signing Request) in PEM format. Providing this attribute will trigger a decentralized enrollment. Incompatible with `subject` and `sans`.",
+				Optional:    true,
 			},
 			"pkcs12": schema.StringAttribute{
-				MarkdownDescription: "Base64-encoded PKCS12 file containing the certificate and the private key. Provided when using centralized enrollment.",
-				Optional:            true,
-				Computed:            true,
+				Description: "Base64-encoded PKCS12 file containing the certificate and the private key. Provided when using centralized enrollment.",
+				Optional:    true,
+				Computed:    true,
+				Sensitive:   true,
 			},
 			"password": schema.StringAttribute{
-				MarkdownDescription: "Password of the PKCS12 file. Provided when using centralized enrollment.",
-				Optional:            true,
-				Computed:            true,
+				Description: "Password of the PKCS12 file. Can be provided when using centralized enrollment, or will be generated by Horizon if not set.",
+				Optional:    true,
+				Computed:    true,
+				Sensitive:   true,
 			},
 			"certificate": schema.StringAttribute{
-				MarkdownDescription: "Base64-encoded certificate. Provided when using centralized enrollment.",
-				Optional:            true,
-				Computed:            true,
+				Description: "Certificate in the PEM format.",
+				Optional:    true,
+				Computed:    true,
 			},
 			"thumbprint": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Thumbprint of the certificate.",
+				Computed:    true,
+				Description: "Thumbprint of the certificate.",
 			},
 			"self_signed": schema.BoolAttribute{
-				Computed:            true,
-				MarkdownDescription: "Self-signed certificate.",
+				Computed:    true,
+				Description: "Whether this is a self-signed certificate.",
 			},
 			"public_key_thumbprint": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Public key thumbprint of the certificate.",
+				Computed:    true,
+				Description: "Public key thumbprint of the certificate.",
 			},
 			"dn": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "DN of the certificate.",
+				Computed:    true,
+				Description: "DN of the certificate.",
 			},
 		},
 	}
 }
 
 func (r *CertificateResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	// Prevent panic if the provider_with_certificate_auth has not been configured.
+	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
 	}
@@ -232,7 +259,7 @@ func (r *CertificateResource) Configure(ctx context.Context, req resource.Config
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *http.Client, got: %T. Please report this issue to the provider_with_certificate_auth developers.", req.ProviderData),
+			fmt.Sprintf("Expected *http.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 
 		return
@@ -242,7 +269,7 @@ func (r *CertificateResource) Configure(ctx context.Context, req resource.Config
 }
 
 func (r *CertificateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data CertificateResourceModel
+	var data certificateResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -251,11 +278,88 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	template, err := enrollTemplateFromResource(r.client, data)
+	var template *horizontypes.WebRAEnrollTemplate
 
-	if err != nil {
-		resp.Diagnostics.AddError("Failed to get enroll template", err.Error())
-		return
+	if !data.Csr.IsNull() {
+		var err error
+		template, err = r.client.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
+			Profile: data.Profile.ValueString(),
+			Csr:     data.Csr.ValueString(),
+		})
+
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to get enroll template", err.Error())
+			return
+		}
+
+		// This is a decentralized enrollment, so we'll ignore the PKCS12 and password parameters.
+		data.Pkcs12 = types.StringNull()
+		data.Password = types.StringNull()
+	} else {
+		// Start a centralized enrollment
+		var err error
+		template, err = r.client.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
+			Profile: data.Profile.ValueString(),
+		})
+
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to get enroll template", err.Error())
+			return
+		}
+
+		// Set Subject
+		subject := make([]certificateSubjectModel, 0, len(data.Subject.Elements()))
+		resp.Diagnostics.Append(data.Subject.ElementsAs(context.Background(), &subject, false)...)
+		template.Subject = make([]horizontypes.IndexedDNElement, 0, len(subject))
+		for _, dnElement := range subject {
+			template.Subject = append(template.Subject, horizontypes.IndexedDNElement{
+				Element: dnElement.Element.ValueString(),
+				Type:    dnElement.Type.ValueString(),
+				Value:   dnElement.Value.ValueString(),
+			})
+		}
+
+		// Set SANs
+		sans := make([]certificateSanModel, 0, len(data.Sans.Elements()))
+		resp.Diagnostics.Append(data.Sans.ElementsAs(context.Background(), &sans, false)...)
+		template.Sans = make([]horizontypes.ListSANElement, 0, len(sans))
+		for _, sanElement := range sans {
+			values := make([]string, 0, len(sanElement.Value))
+			for _, value := range sanElement.Value {
+				values = append(values, value.ValueString())
+			}
+			template.Sans = append(template.Sans, horizontypes.ListSANElement{
+				Type:  sanElement.Type.ValueString(),
+				Value: values,
+			})
+		}
+
+		template.KeyType = data.KeyType.ValueString()
+
+	}
+
+	// Set Labels
+	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
+	resp.Diagnostics.Append(data.Labels.ElementsAs(context.Background(), &labels, false)...)
+	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
+	for _, label := range labels {
+		template.Labels = append(template.Labels, horizontypes.LabelElement{
+			Label: label.Label.ValueString(),
+			Value: &horizontypes.String{String: label.Value.ValueString()},
+		})
+	}
+
+	if !data.Owner.IsNull() {
+		template.Owner = &horizontypes.OwnerElement{Value: &horizontypes.String{String: data.Owner.ValueString()}}
+	}
+
+	if !data.Team.IsNull() {
+		template.Team = &horizontypes.TeamElement{Value: &horizontypes.String{String: data.Team.ValueString()}}
+	}
+
+	// Get contact email
+	if !data.ContactEmail.IsNull() {
+		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: data.ContactEmail.ValueString()}}
 	}
 
 	response, err := r.client.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
@@ -269,7 +373,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	err = fillResourceFromCertificate(&data, response.Certificate)
+	fillResourceFromCertificate(&data, response.Certificate)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to fill resource from certificate", err.Error())
 		return
@@ -288,7 +392,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 }
 
 func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data CertificateResourceModel
+	var data certificateResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -302,67 +406,85 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 		resp.Diagnostics.AddError("Failed to get certificate", err.Error())
 	}
 
-	err = fillResourceFromCertificate(&data, res)
+	fillResourceFromCertificate(&data, res)
 	if err != nil {
 		resp.Diagnostics.AddWarning("Failed to fill resource from certificate", err.Error())
 		resp.State.RemoveResource(ctx)
 	}
 
-	notAfter := time.Unix(int64(res.NotAfter/1000), 0)
-	if time.Now().After(notAfter) && data.RenewBefore.ValueInt64() > 0 {
-		resp.State.RemoveResource(ctx)
-	}
-
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	//notAfter := time.Unix(int64(res.NotAfter/1000), 0)
+	renewalDate := time.UnixMilli(data.NotAfter.ValueInt64()).AddDate(0, 0, -int(data.RenewBefore.ValueInt64()))
+	if time.Now().After(renewalDate) && data.RenewBefore.ValueInt64() > 0 {
+		tflog.Info(ctx, fmt.Sprintf("Certificate is in its renewal period, renewing it (expires at %s, computed renewal date is %s).", time.UnixMilli(int64(res.NotAfter)), renewalDate))
+		resp.State.RemoveResource(ctx)
+	} else {
+		tflog.Debug(ctx, fmt.Sprintf("Certificate is not in its renewal period (expires at %s, computed renewal date is %s).", time.UnixMilli(int64(res.NotAfter)), renewalDate))
+	}
 }
 
 func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data CertificateResourceModel
+	var data certificateResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	// Preserve existing PKCS12 and password from state
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("pkcs12"), &data.Pkcs12)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("password"), &data.Password)...)
 
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Revoke the old certificate
-	if data.RevokeOnDelete.ValueBool() {
-		_, err := r.client.Requests.NewRevokeRequest(horizontypes.WebRARevokeRequestParams{
-			RevocationReason: horizontypes.Superseded,
-			CertificateId:    data.Id.ValueString(),
-		})
-		if err != nil {
-			resp.Diagnostics.AddError("Failed to revoke certificate", err.Error())
-		}
-	}
-
-	template, err := enrollTemplateFromResource(r.client, data)
+	template, err := r.client.Requests.GetUpdateTemplate(horizontypes.WebRAUpdateTemplateParams{
+		CertificateId: data.Id.ValueString(),
+	})
 
 	if err != nil {
-		resp.Diagnostics.AddError("Failed to get enroll template", err.Error())
+		resp.Diagnostics.AddError("Failed to get update template", err.Error())
 		return
 	}
 
-	response, err := r.client.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
-		Profile:  data.Profile.ValueString(),
-		Template: template,
-		Password: data.Password.ValueString(),
+	// Set Labels
+	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
+	resp.Diagnostics.Append(data.Labels.ElementsAs(context.Background(), &labels, false)...)
+	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
+	for _, label := range labels {
+		template.Labels = append(template.Labels, horizontypes.LabelElement{
+			Label: label.Label.ValueString(),
+			Value: &horizontypes.String{String: label.Value.ValueString()},
+		})
+	}
+
+	if !data.Owner.IsNull() {
+		template.Owner = &horizontypes.OwnerElement{Value: &horizontypes.String{String: data.Owner.ValueString()}}
+	}
+
+	if !data.Team.IsNull() {
+		template.Team = &horizontypes.TeamElement{Value: &horizontypes.String{String: data.Team.ValueString()}}
+	}
+
+	// Get contact email
+	if !data.ContactEmail.IsNull() {
+		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: data.ContactEmail.ValueString()}}
+	}
+
+	response, err := r.client.Requests.NewUpdateRequest(horizontypes.WebRAUpdateRequestParams{
+		CertificateId: data.Id.ValueString(),
+		Template:      template,
 	})
 
-	err = fillResourceFromCertificate(&data, response.Certificate)
+	if err != nil {
+		resp.Diagnostics.AddError("Failed to update certificate", err.Error())
+		return
+	}
+
+	fillResourceFromCertificate(&data, response.Certificate)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to fill resource from certificate", err.Error())
 		return
-	}
-
-	if response.Pkcs12 != nil {
-		data.Pkcs12 = types.StringValue(response.Pkcs12.Value)
-	}
-
-	if response.Password != nil {
-		data.Password = types.StringValue(response.Password.Value)
 	}
 
 	// Save updated data into Terraform state
@@ -370,7 +492,7 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 }
 
 func (r *CertificateResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data CertificateResourceModel
+	var data certificateResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -394,116 +516,34 @@ func (r *CertificateResource) ImportState(ctx context.Context, req resource.Impo
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func enrollTemplateFromResource(c *horizon.Horizon, d CertificateResourceModel) (*horizontypes.WebRAEnrollTemplate, error) {
-	var template *horizontypes.WebRAEnrollTemplate
+func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data certificateResourceModel
 
-	if !d.Csr.IsNull() {
-		// Start a decentralized enrollment
-		if d.KeyType.IsNull() {
-			return nil, errors.New("the parameter 'key_type' is not compatible with the parameter 'csr'")
-		}
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
-		var err error
-
-		template, err = c.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
-			Profile: d.Profile.ValueString(),
-			Csr:     d.Csr.ValueString(),
-		})
-
-		if err != nil {
-			return nil, err
-		}
-
-	} else {
-		// Start a centralized enrollment
-		var err error
-		template, err = c.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
-			Profile: d.Profile.ValueString(),
-		})
-
-		if err != nil {
-			return nil, err
-		}
-
-		// Set Subject
-		dnElements := make([]attr.Value, 0, len(d.Subject.Elements()))
-		diag := d.Subject.ElementsAs(context.Background(), &dnElements, false)
-		if diag.HasError() {
-			return nil, errors.New("failed to unmarshall subject elements")
-		}
-
-		var subject []horizontypes.IndexedDNElement
-		for _, dnElement := range dnElements {
-			value := dnElement.(basetypes.ObjectValue).Attributes()
-			subject = append(subject, horizontypes.IndexedDNElement{
-				Element: value["element"].String(),
-				Type:    value["type"].String(),
-				Value:   value["value"].String(),
-			})
-		}
-		template.Subject = subject
-
-		// Set SANs
-		sanElements := make([]attr.Value, 0, len(d.Sans.Elements()))
-		diag = d.Sans.ElementsAs(context.Background(), &sanElements, false)
-		if diag.HasError() {
-			return nil, errors.New("failed to unmarshall san elements")
-		}
-
-		var sans []horizontypes.ListSANElement
-		d.Sans.ElementsAs(context.Background(), &sans, false)
-		for _, sanElement := range sanElements {
-			san := sanElement.(basetypes.ObjectValue).Attributes()
-			values := []string{}
-			for _, value := range san["value"].(basetypes.ObjectValue).Attributes() {
-				values = append(values, value.String())
-			}
-			sans = append(sans, horizontypes.ListSANElement{
-				Type:  san["type"].String(),
-				Value: values,
-			})
-		}
-		template.Sans = sans
-
-		template.KeyType = d.KeyType.ValueString()
-
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	// Set Labels
-	labelElements := make([]attr.Value, 0, len(d.Labels.Elements()))
-	diag := d.Labels.ElementsAs(context.Background(), &labelElements, false)
-	if diag.HasError() {
-		return nil, errors.New("failed to unmarshall label elements")
-	}
+	if !data.Csr.IsNull() {
+		// We assume we're in a decentralized enrollment mode, so we'll warn about useless parameters.
+		if !data.KeyType.IsNull() {
+			resp.Diagnostics.AddAttributeWarning(path.Root("key_type"), "key_type is ignored when csr is provided.", "")
+		}
 
-	var labels []horizontypes.LabelElement
-	for _, labelElement := range labelElements {
-		label := labelElement.(basetypes.ObjectValue).Attributes()
-		labels = append(labels, horizontypes.LabelElement{
-			Label: label["label"].String(),
-			Value: &horizontypes.String{String: label["value"].String()},
-		})
-	}
-	template.Labels = labels
+		if len(data.Subject.Elements()) > 0 {
+			resp.Diagnostics.AddAttributeWarning(path.Root("subject"), "subject is ignored when csr is provided.", "")
+		}
 
-	if !d.Owner.IsNull() {
-		template.Owner = &horizontypes.OwnerElement{Value: &horizontypes.String{String: d.Owner.ValueString()}}
+		if len(data.Sans.Elements()) > 0 {
+			resp.Diagnostics.AddAttributeWarning(path.Root("sans"), "sans is ignored when csr is provided.", "")
+		}
 	}
-
-	if !d.Team.IsNull() {
-		template.Team = &horizontypes.TeamElement{Value: &horizontypes.String{String: d.Team.ValueString()}}
-	}
-
-	// Get contact email
-	if !d.ContactEmail.IsNull() {
-		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: d.ContactEmail.ValueString()}}
-	}
-
-	return template, nil
 }
 
-func fillResourceFromCertificate(d *CertificateResourceModel, certificate *horizontypes.Certificate) error {
+func fillResourceFromCertificate(d *certificateResourceModel, certificate *horizontypes.Certificate) {
 	d.Id = types.StringValue(certificate.Id)
+	d.Certificate = types.StringValue(certificate.Certificate)
 	d.Thumbprint = types.StringValue(certificate.Thumbprint)
 	d.SelfSigned = types.BoolValue(certificate.SelfSigned)
 	d.PublicKeyThumbprint = types.StringValue(certificate.PublicKeyThumbprint)
@@ -515,6 +555,4 @@ func fillResourceFromCertificate(d *CertificateResourceModel, certificate *horiz
 	d.RevocationDate = types.Int64Value(int64(certificate.RevocationDate))
 	d.KeyType = types.StringValue(certificate.KeyType)
 	d.SigningAlgorithm = types.StringValue(certificate.SigningAlgorithm)
-
-	return nil
 }

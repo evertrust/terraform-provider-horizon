@@ -1,26 +1,32 @@
 # Centralized enrollement
 resource "horizon_certificate" "example_centralized" {
-  subject {
-    element = "CN"
-    type    = "CN"
-    value   = "example.terraform.cn"
-  }
-  sans {
-    element = "DNSNAME"
-    type    = "DNSNAME"
-    value   = "example.terraform.dnsname"
-  }
-  labels {
-    label = "label"
-    value = "example"
-  }
-  profile          = "Enrollment Profile"
+  profile          = "EnrollmentProfile"
   key_type         = "rsa-2048"
-  revoke_on_delete = false
+  revoke_on_delete = true
+  renew_before     = 30
+
+  subject = [
+    {
+      element = "CN"
+      type    = "CN"
+      value   = "example.com"
+    }
+  ]
+  sans = [
+    {
+      type  = "DNSNAME"
+      value = ["example.com", "www.example.com"]
+    }
+  ]
+  labels = [
+    {
+      label = "labelKey"
+      value = "labelValue"
+    }
+  ]
 }
 
 # Decentralized enrollment
-
 resource "tls_private_key" "example_decentralized" {
   algorithm = "RSA"
   rsa_bits  = 2048
@@ -37,11 +43,13 @@ resource "tls_cert_request" "example_decentralized" {
 
 resource "horizon_certificate" "example_decentralized" {
   csr              = tls_cert_request.example_decentralized.cert_request_pem
-  profile          = "DefaultProfile"
-  revoke_on_delete = false
+  profile          = "EnrollmentProfile"
+  revoke_on_delete = true
 
-  labels {
-    label = "label"
-    value = "example"
-  }
+  labels = [
+    {
+      label = "labelKey"
+      value = "labelValue"
+    }
+  ]
 }
