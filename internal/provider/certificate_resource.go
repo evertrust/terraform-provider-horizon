@@ -374,10 +374,6 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	fillResourceFromCertificate(&data, response.Certificate)
-	if err != nil {
-		resp.Diagnostics.AddError("Failed to fill resource from certificate", err.Error())
-		return
-	}
 
 	if response.Pkcs12 != nil {
 		data.Pkcs12 = types.StringValue(response.Pkcs12.Value)
@@ -401,16 +397,16 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 		return
 	}
 
+	tflog.Info(ctx, fmt.Sprintf("Getting certificate %s", data.Id.ValueString()))
 	res, err := r.client.Certificate.Get(data.Id.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to get certificate", err.Error())
+		return
 	}
 
+	tflog.Debug(ctx, fmt.Sprintf("Successfully got certificate %s", data.Id.ValueString()))
+
 	fillResourceFromCertificate(&data, res)
-	if err != nil {
-		resp.Diagnostics.AddWarning("Failed to fill resource from certificate", err.Error())
-		resp.State.RemoveResource(ctx)
-	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -482,10 +478,6 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 	}
 
 	fillResourceFromCertificate(&data, response.Certificate)
-	if err != nil {
-		resp.Diagnostics.AddError("Failed to fill resource from certificate", err.Error())
-		return
-	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
