@@ -34,6 +34,7 @@ type horizonProviderModel struct {
 	ClientKeyPem  types.String `tfsdk:"client_key_pem"`
 	SkipTlsVerify types.Bool   `tfsdk:"skip_tls_verify"`
 	CaBundlePem   types.String `tfsdk:"ca_bundle_pem"`
+	Proxy         types.String `tfsdk:"proxy"`
 }
 
 func (p *HorizonProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -73,6 +74,10 @@ func (p *HorizonProvider) Schema(ctx context.Context, req provider.SchemaRequest
 				MarkdownDescription: "PEM-encoded CA bundle to use for TLS certificate verification. Optional.",
 				Optional:            true,
 			},
+			"proxy": schema.StringAttribute{
+				MarkdownDescription: "HTTP proxy URL to use for requests. Optional.",
+				Optional:            true,
+			},
 		},
 	}
 }
@@ -97,6 +102,15 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	if data.SkipTlsVerify.ValueBool() {
 		client.Http.SkipTLSVerify()
+	}
+
+	if !data.Proxy.IsNull() {
+		proxyUrl, err := url.Parse(data.Proxy.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError("Invalid proxy URL", err.Error())
+			return
+		}
+		client.Http.SetProxy(*proxyUrl)
 	}
 
 	if !data.CaBundlePem.IsNull() {
