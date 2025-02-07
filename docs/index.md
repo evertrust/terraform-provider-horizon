@@ -52,5 +52,6 @@ provider "horizon" {
 - `client_cert_pem` (String) Client certificate to use for authentication. Required when client_key_pem is provided.
 - `client_key_pem` (String) Private key associated with the client certificate. Required when client_cert_pem is provided.
 - `password` (String) Local account password. Required when username is provided.
+- `proxy` (String) HTTP proxy URL to use for requests. Optional.
 - `skip_tls_verify` (Boolean) Skip TLS certificate verification. Optional, default to false. Note that this is not recommended in production.
 - `username` (String) Local account identifier. Required when password is provided.
