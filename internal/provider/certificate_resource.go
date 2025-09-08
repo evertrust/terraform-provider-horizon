@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/evertrust/horizon-go"
 	horizontypes "github.com/evertrust/horizon-go/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -13,7 +15,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"time"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -55,6 +56,9 @@ type certificateResourceModel struct {
 	Subject      types.Set    `tfsdk:"subject"`
 	Sans         types.Set    `tfsdk:"sans"`
 	Labels       types.Set    `tfsdk:"labels"`
+	ThirdParties types.Set    `tfsdk:"third_parties"`
+
+	// Settings
 
 	RevokeOnDelete types.Bool  `tfsdk:"revoke_on_delete"`
 	RenewBefore    types.Int64 `tfsdk:"renew_before"`
@@ -157,6 +161,11 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 						},
 					},
 				},
+			},
+			"third_parties": schema.SetAttribute{
+				Description: "Third parties ids to which the certificate will be published.",
+				Required:    false,
+				ElementType: types.StringType,
 			},
 			"owner": schema.StringAttribute{
 				Optional:    true,
@@ -362,6 +371,9 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: data.ContactEmail.ValueString()}}
 	}
 
+	// Enroll the certificate
+	tflog.Info(ctx, fmt.Sprintf("Enrolling certificate into profile %s", data.Profile.ValueString()))
+
 	response, err := r.client.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
 		Profile:  data.Profile.ValueString(),
 		Template: template,
@@ -371,6 +383,18 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to enroll certificate", err.Error())
 		return
+	}
+
+	// Check that certificates are successfully added to Third Parties
+	thirdParties := make([]string, 0, len(data.ThirdParties.Elements()))
+	resp.Diagnostics.Append(data.ThirdParties.ElementsAs(context.Background(), &thirdParties, false)...)
+	// If ThirdParties were defined, poll the certificate until all of them are in the 'thirdPartyData' field
+	if len(thirdParties) > 0 {
+		err = pollForThirdParties(r.client, response.Id, thirdParties)
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
+			return
+		}
 	}
 
 	fillResourceFromCertificate(&data, response.Certificate)
@@ -533,6 +557,7 @@ func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.Va
 	}
 }
 
+// Fill the computed attributes of the resource
 func fillResourceFromCertificate(d *certificateResourceModel, certificate *horizontypes.Certificate) {
 	d.Id = types.StringValue(certificate.Id)
 	d.Certificate = types.StringValue(certificate.Certificate)
@@ -547,4 +572,52 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 	d.RevocationDate = types.Int64Value(int64(certificate.RevocationDate))
 	d.KeyType = types.StringValue(certificate.KeyType)
 	d.SigningAlgorithm = types.StringValue(certificate.SigningAlgorithm)
+}
+
+// Poll the certificate until all third parties are present in the 'thirdPartyData' field
+func pollForThirdParties(horizonClient *horizon.Horizon, requestId string, thirdParties []string) error {
+
+	foundThirdParties := make(map[string]bool, len(thirdParties))
+	for _, thirdParty := range thirdParties {
+		foundThirdParties[thirdParty] = false
+	}
+
+	const MAX_RETRIES = 10
+	timePadding := 15 * time.Second
+	nbToFind := len(thirdParties)
+	for retries := 0; retries < MAX_RETRIES; retries++ {
+		time.Sleep(timePadding)
+		polledEnrollRequest, err := horizonClient.Requests.GetEnrollRequest(requestId)
+		if err != nil {
+			return fmt.Errorf("failed to poll certificate after enrollment: %s", err.Error())
+		}
+		if polledEnrollRequest.Certificate.ThirdPartyData != nil {
+			// Check if the certificate have been added to all third parties
+			for _, thirdPartyData := range polledEnrollRequest.Certificate.ThirdPartyData {
+				_, ok := foundThirdParties[thirdPartyData.Id]
+				if !ok {
+					// Found a third party we didn't expect, ignore it
+					continue
+				} else if !foundThirdParties[thirdPartyData.Id] {
+					// if the third party was not already found, mark it as found
+					foundThirdParties[thirdPartyData.Id] = true
+					nbToFind--
+					if nbToFind == 0 {
+						// All third parties have been found, stop polling
+						break
+					}
+				}
+			}
+		}
+	}
+	if nbToFind > 0 {
+		thirdPartiesNotFound := make([]string, 0)
+		for thirdParty, found := range foundThirdParties {
+			if !found {
+				thirdPartiesNotFound = append(thirdPartiesNotFound, thirdParty)
+			}
+		}
+		return fmt.Errorf("timeout... failed to find all third parties after enrollment. Could not find: %v", thirdPartiesNotFound)
+	}
+	return nil
 }
