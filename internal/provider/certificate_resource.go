@@ -164,7 +164,7 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 			},
 			"third_parties": schema.SetAttribute{
 				Description: "Third parties ids to which the certificate will be published.",
-				Required:    false,
+				Optional:    true,
 				ElementType: types.StringType,
 			},
 			"owner": schema.StringAttribute{
