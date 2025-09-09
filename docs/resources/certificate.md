@@ -40,7 +40,7 @@ resource "horizon_certificate" "example_centralized" {
     }
   ]
   third_parties = [
-    "aws-evertrust-qa"
+    "my-aws-connector"
   ]
 }
 
