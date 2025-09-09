@@ -372,8 +372,6 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	// Enroll the certificate
-	tflog.Info(ctx, fmt.Sprintf("Enrolling certificate into profile %s", data.Profile.ValueString()))
-
 	response, err := r.client.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
 		Profile:  data.Profile.ValueString(),
 		Template: template,
@@ -390,7 +388,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	resp.Diagnostics.Append(data.ThirdParties.ElementsAs(context.Background(), &thirdParties, false)...)
 	// If ThirdParties were defined, poll the certificate until all of them are in the 'thirdPartyData' field
 	if len(thirdParties) > 0 {
-		err = pollForThirdParties(r.client, response.Id, thirdParties)
+		err = pollForThirdParties(ctx, r.client, response.Certificate.Id, thirdParties)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
 			return
@@ -575,32 +573,34 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 }
 
 // Poll the certificate until all third parties are present in the 'thirdPartyData' field
-func pollForThirdParties(horizonClient *horizon.Horizon, requestId string, thirdParties []string) error {
+func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, certificateId string, thirdParties []string) error {
 
 	foundThirdParties := make(map[string]bool, len(thirdParties))
 	for _, thirdParty := range thirdParties {
 		foundThirdParties[thirdParty] = false
 	}
+	tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
 
 	const MAX_RETRIES = 10
 	timePadding := 15 * time.Second
 	nbToFind := len(thirdParties)
 	for retries := 0; retries < MAX_RETRIES; retries++ {
 		time.Sleep(timePadding)
-		polledEnrollRequest, err := horizonClient.Requests.GetEnrollRequest(requestId)
+		polledCertificate, err := horizonClient.Certificate.Get(certificateId)
 		if err != nil {
 			return fmt.Errorf("failed to poll certificate after enrollment: %s", err.Error())
 		}
-		if polledEnrollRequest.Certificate.ThirdPartyData != nil {
+		tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
+		if polledCertificate.ThirdPartyData != nil {
 			// Check if the certificate have been added to all third parties
-			for _, thirdPartyData := range polledEnrollRequest.Certificate.ThirdPartyData {
-				_, ok := foundThirdParties[thirdPartyData.Id]
+			for _, thirdPartyData := range polledCertificate.ThirdPartyData {
+				_, ok := foundThirdParties[thirdPartyData.Connector]
 				if !ok {
 					// Found a third party we didn't expect, ignore it
 					continue
-				} else if !foundThirdParties[thirdPartyData.Id] {
+				} else if !foundThirdParties[thirdPartyData.Connector] {
 					// if the third party was not already found, mark it as found
-					foundThirdParties[thirdPartyData.Id] = true
+					foundThirdParties[thirdPartyData.Connector] = true
 					nbToFind--
 					if nbToFind == 0 {
 						// All third parties have been found, stop polling
@@ -608,7 +608,11 @@ func pollForThirdParties(horizonClient *horizon.Horizon, requestId string, third
 					}
 				}
 			}
+			if nbToFind == 0 {
+				break
+			}
 		}
+		tflog.Info(ctx, fmt.Sprintf("Third-parties state after %d polling retries: %v", retries+1, foundThirdParties))
 	}
 	if nbToFind > 0 {
 		thirdPartiesNotFound := make([]string, 0)
