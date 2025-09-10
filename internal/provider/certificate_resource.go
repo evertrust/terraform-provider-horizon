@@ -592,34 +592,18 @@ func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, ce
 		tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
 		// Check if the certificate have been added to all third parties
 		for _, thirdPartyData := range polledCertificate.ThirdPartyData {
-			_, ok := foundThirdParties[thirdPartyData.Connector]
-			if !ok {
-				// Found a third party we didn't expect, ignore it
-				continue
-			} else if !foundThirdParties[thirdPartyData.Connector] {
-				// if the third party was not already found, mark it as found
+			if _, ok := foundThirdParties[thirdPartyData.Connector]; ok && !foundThirdParties[thirdPartyData.Connector] {
+				//if the third party is in the list and was not found yet, mark it as found
 				foundThirdParties[thirdPartyData.Connector] = true
 				nbToFind--
 				if nbToFind == 0 {
 					// All third parties have been found, stop polling
-					break
+					return nil
 				}
 			}
-		}
-		if nbToFind == 0 {
-			break
 		}
 		tflog.Info(ctx, fmt.Sprintf("Third-parties state after %d polling retries: %v", retries+1, foundThirdParties))
 		time.Sleep(timePadding)
 	}
-	if nbToFind > 0 {
-		thirdPartiesNotFound := make([]string, 0)
-		for thirdParty, found := range foundThirdParties {
-			if !found {
-				thirdPartiesNotFound = append(thirdPartiesNotFound, thirdParty)
-			}
-		}
-		return fmt.Errorf("timeout... failed to find all third parties after enrollment. Could not find: %v", thirdPartiesNotFound)
-	}
-	return nil
+	return fmt.Errorf("timeout... failed to find all third parties after enrollment. Could not find: %v", foundThirdParties)
 }
