@@ -605,5 +605,5 @@ func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, ce
 		tflog.Info(ctx, fmt.Sprintf("Third-parties state after %d polling retries: %v", retries+1, foundThirdParties))
 		time.Sleep(timePadding)
 	}
-	return fmt.Errorf("timeout... failed to find all third parties after enrollment. Could not find: %v", foundThirdParties)
+	return fmt.Errorf("timeout... failed to find all third parties after enrollment : %v", foundThirdParties)
 }
