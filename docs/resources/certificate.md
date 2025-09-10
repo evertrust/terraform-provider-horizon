@@ -39,7 +39,7 @@ resource "horizon_certificate" "example_centralized" {
       value = "labelValue"
     }
   ]
-  third_parties = [
+  wait_for_third_parties = [
     "my-aws-connector"
   ]
 }
@@ -95,7 +95,7 @@ resource "horizon_certificate" "example_decentralized" {
 - `sans` (Attributes Set) Subject alternative names of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--sans))
 - `subject` (Attributes Set) Subject elements of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--subject))
 - `team` (String) Team associated with the certificate.
-- `third_parties` (Set of String) List of third-party where the certificate will be published after enrollment. Please provide the name of the third-party connector provided in the triggers of the enrolment profile.
+- `wait_for_third_parties` (Set of String) List of third-party where the certificate will be published after enrollment. Please provide the name of the third-party connector provided in the triggers of the enrolment profile.
 
 ### Read-Only
 

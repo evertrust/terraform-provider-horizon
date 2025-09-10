@@ -56,7 +56,7 @@ type certificateResourceModel struct {
 	Subject      types.Set    `tfsdk:"subject"`
 	Sans         types.Set    `tfsdk:"sans"`
 	Labels       types.Set    `tfsdk:"labels"`
-	ThirdParties types.Set    `tfsdk:"third_parties"`
+	ThirdParties types.Set    `tfsdk:"wait_for_third_parties"`
 
 	// Settings
 
@@ -162,7 +162,7 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 					},
 				},
 			},
-			"third_parties": schema.SetAttribute{
+			"wait_for_third_parties": schema.SetAttribute{
 				Description: "Third parties ids to which the certificate will be published.",
 				Optional:    true,
 				ElementType: types.StringType,
@@ -318,7 +318,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 		// Set Subject
 		subject := make([]certificateSubjectModel, 0, len(data.Subject.Elements()))
-		resp.Diagnostics.Append(data.Subject.ElementsAs(context.Background(), &subject, false)...)
+		resp.Diagnostics.Append(data.Subject.ElementsAs(ctx, &subject, false)...)
 		template.Subject = make([]horizontypes.IndexedDNElement, 0, len(subject))
 		for _, dnElement := range subject {
 			template.Subject = append(template.Subject, horizontypes.IndexedDNElement{
@@ -330,7 +330,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 		// Set SANs
 		sans := make([]certificateSanModel, 0, len(data.Sans.Elements()))
-		resp.Diagnostics.Append(data.Sans.ElementsAs(context.Background(), &sans, false)...)
+		resp.Diagnostics.Append(data.Sans.ElementsAs(ctx, &sans, false)...)
 		template.Sans = make([]horizontypes.ListSANElement, 0, len(sans))
 		for _, sanElement := range sans {
 			values := make([]string, 0, len(sanElement.Value))
@@ -349,7 +349,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 	// Set Labels
 	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
-	resp.Diagnostics.Append(data.Labels.ElementsAs(context.Background(), &labels, false)...)
+	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
 	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
 	for _, label := range labels {
 		template.Labels = append(template.Labels, horizontypes.LabelElement{
@@ -385,7 +385,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 	// Check that certificates are successfully added to Third Parties
 	thirdParties := make([]string, 0, len(data.ThirdParties.Elements()))
-	resp.Diagnostics.Append(data.ThirdParties.ElementsAs(context.Background(), &thirdParties, false)...)
+	resp.Diagnostics.Append(data.ThirdParties.ElementsAs(ctx, &thirdParties, false)...)
 	// If ThirdParties were defined, poll the certificate until all of them are in the 'thirdPartyData' field
 	if len(thirdParties) > 0 {
 		err = pollForThirdParties(ctx, r.client, response.Certificate.Id, thirdParties)
@@ -467,7 +467,7 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 
 	// Set Labels
 	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
-	resp.Diagnostics.Append(data.Labels.ElementsAs(context.Background(), &labels, false)...)
+	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
 	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
 	for _, label := range labels {
 		template.Labels = append(template.Labels, horizontypes.LabelElement{
@@ -585,7 +585,6 @@ func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, ce
 	timePadding := 15 * time.Second
 	nbToFind := len(thirdParties)
 	for retries := 0; retries < MAX_RETRIES; retries++ {
-		time.Sleep(timePadding)
 		polledCertificate, err := horizonClient.Certificate.Get(certificateId)
 		if err != nil {
 			return fmt.Errorf("failed to poll certificate after enrollment: %s", err.Error())
@@ -613,6 +612,7 @@ func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, ce
 			}
 		}
 		tflog.Info(ctx, fmt.Sprintf("Third-parties state after %d polling retries: %v", retries+1, foundThirdParties))
+		time.Sleep(timePadding)
 	}
 	if nbToFind > 0 {
 		thirdPartiesNotFound := make([]string, 0)
