@@ -18,8 +18,10 @@ import (
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &CertificateResource{}
-var _ resource.ResourceWithImportState = &CertificateResource{}
+var (
+	_ resource.Resource                = &CertificateResource{}
+	_ resource.ResourceWithImportState = &CertificateResource{}
+)
 
 func NewCertificateResource() resource.Resource {
 	return &CertificateResource{}
@@ -574,7 +576,6 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 
 // Poll the certificate until all third parties are present in the 'thirdPartyData' field
 func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, certificateId string, thirdParties []string) error {
-
 	foundThirdParties := make(map[string]bool, len(thirdParties))
 	for _, thirdParty := range thirdParties {
 		foundThirdParties[thirdParty] = false
@@ -583,7 +584,6 @@ func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, ce
 
 	const MAX_RETRIES = 10
 	timePadding := 15 * time.Second
-	nbToFind := len(thirdParties)
 	for retries := 0; retries < MAX_RETRIES; retries++ {
 		polledCertificate, err := horizonClient.Certificate.Get(certificateId)
 		if err != nil {
@@ -591,19 +591,27 @@ func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, ce
 		}
 		tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
 		// Check if the certificate have been added to all third parties
-		for _, thirdPartyData := range polledCertificate.ThirdPartyData {
-			if _, ok := foundThirdParties[thirdPartyData.Connector]; ok && !foundThirdParties[thirdPartyData.Connector] {
-				//if the third party is in the list and was not found yet, mark it as found
-				foundThirdParties[thirdPartyData.Connector] = true
-				nbToFind--
-				if nbToFind == 0 {
-					// All third parties have been found, stop polling
-					return nil
-				}
-			}
+		if certificateContainsAllThirdParties(polledCertificate, thirdParties) {
+			return nil
 		}
 		tflog.Info(ctx, fmt.Sprintf("Third-parties state after %d polling retries: %v", retries+1, foundThirdParties))
 		time.Sleep(timePadding)
 	}
 	return fmt.Errorf("timeout... failed to find all third parties after enrollment : %v", foundThirdParties)
+}
+
+func certificateContainsAllThirdParties(cert *horizontypes.Certificate, thirdParties []string) bool {
+	// build a set of connectors present in the certificate
+	connectors := make(map[string]struct{}, len(cert.ThirdPartyData))
+	for _, tpData := range cert.ThirdPartyData {
+		connectors[tpData.Connector] = struct{}{}
+	}
+
+	// check that all expected IDs are present
+	for _, tp := range thirdParties {
+		if _, ok := connectors[tp]; !ok {
+			return false
+		}
+	}
+	return true
 }
