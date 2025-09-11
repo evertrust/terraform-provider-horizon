@@ -407,12 +407,15 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		err = retry.RetryContext(ctx, timeout, func() *retry.RetryError {
 			err = pollForThirdParties(ctx, r.client, response.Certificate.Id, thirdParties)
 			if err != nil {
-				resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
 				return retry.RetryableError(err)
 			}
 			return nil
 
 		})
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
+			return
+		}
 	}
 
 	fillResourceFromCertificate(&data, response.Certificate)
@@ -594,10 +597,6 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 
 // Poll the certificate until all third parties are present in the 'thirdPartyData' field
 func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, certificateId string, thirdParties []string) error {
-	foundThirdParties := make(map[string]bool, len(thirdParties))
-	for _, thirdParty := range thirdParties {
-		foundThirdParties[thirdParty] = false
-	}
 	tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
 
 	polledCertificate, err := horizonClient.Certificate.Get(certificateId)
@@ -606,11 +605,10 @@ func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, ce
 	}
 	tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
 	// Check if the certificate have been added to all third parties
-	if certificateContainsAllThirdParties(polledCertificate, thirdParties) {
-		return nil
-	} else {
-		return fmt.Errorf("failed to find all third parties after enrollment : %v", foundThirdParties)
+	if !certificateContainsAllThirdParties(polledCertificate, thirdParties) {
+		return fmt.Errorf("failed to find all third parties after enrollment : %v")
 	}
+	return nil
 }
 
 func certificateContainsAllThirdParties(cert *horizontypes.Certificate, thirdParties []string) bool {
