@@ -7,12 +7,12 @@ import (
 
 	"github.com/evertrust/horizon-go"
 	horizontypes "github.com/evertrust/horizon-go/types"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -52,16 +52,15 @@ type certificateLabelModel struct {
 
 // certificateResourceModel describes the resource data model.
 type certificateResourceModel struct {
-	Id           types.String `tfsdk:"id"`
-	Profile      types.String `tfsdk:"profile"`
-	Owner        types.String `tfsdk:"owner"`
-	Team         types.String `tfsdk:"team"`
-	ContactEmail types.String `tfsdk:"contact_email"`
-	Subject      types.Set    `tfsdk:"subject"`
-	Sans         types.Set    `tfsdk:"sans"`
-	Labels       types.Set    `tfsdk:"labels"`
-	ThirdParties types.Set    `tfsdk:"wait_for_third_parties"`
-	Timeouts     types.String `tfsdk:"timeouts"`
+	Id                  types.String `tfsdk:"id"`
+	Profile             types.String `tfsdk:"profile"`
+	Owner               types.String `tfsdk:"owner"`
+	Team                types.String `tfsdk:"team"`
+	ContactEmail        types.String `tfsdk:"contact_email"`
+	Subject             types.Set    `tfsdk:"subject"`
+	Sans                types.Set    `tfsdk:"sans"`
+	Labels              types.Set    `tfsdk:"labels"`
+	WaitForThirdParties types.Set    `tfsdk:"wait_for_third_parties"`
 
 	// Settings
 
@@ -84,6 +83,8 @@ type certificateResourceModel struct {
 	RevocationDate      types.Int64  `tfsdk:"revocation_date"`
 	KeyType             types.String `tfsdk:"key_type"`
 	SigningAlgorithm    types.String `tfsdk:"signing_algorithm"`
+
+	Timeouts timeouts.Value `tfsdk:"timeouts"`
 }
 
 func (r *CertificateResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -172,12 +173,6 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Optional:    true,
 				ElementType: types.StringType,
 			},
-			"timeouts": schema.StringAttribute{
-				Description: "Timeout for the creation of the certificate, in Go duration format (e.g. `5m`, `1h`). The default is `5m`.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("5m"),
-			},
 			"owner": schema.StringAttribute{
 				Optional:    true,
 				Description: "Owner associated with the certificate.",
@@ -264,6 +259,11 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Computed:    true,
 				Description: "DN of the certificate.",
 			},
+		},
+		Blocks: map[string]schema.Block{
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{
+				Create: true,
+			}),
 		},
 	}
 }
@@ -395,22 +395,29 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	// Check that certificates are successfully added to Third Parties
-	thirdParties := make([]string, 0, len(data.ThirdParties.Elements()))
-	resp.Diagnostics.Append(data.ThirdParties.ElementsAs(ctx, &thirdParties, false)...)
-	timeout, err := time.ParseDuration(data.Timeouts.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Failed to parse timeouts", err.Error())
-		return
-	}
+	thirdParties := make([]string, 0, len(data.WaitForThirdParties.Elements()))
+	resp.Diagnostics.Append(data.WaitForThirdParties.ElementsAs(ctx, &thirdParties, false)...)
+
+	createTimeout, diags := data.Timeouts.Create(ctx, 5*time.Minute)
+	resp.Diagnostics.Append(diags...)
+
 	// If ThirdParties were defined, poll the certificate until all of them are in the 'thirdPartyData' field
 	if len(thirdParties) > 0 {
-		err = retry.RetryContext(ctx, timeout, func() *retry.RetryError {
-			err = pollForThirdParties(ctx, r.client, response.Certificate.Id, thirdParties)
+		err = retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
+			certificateId := response.Certificate.Id
+			tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
+
+			polledCertificate, err := r.client.Certificate.Get(certificateId)
 			if err != nil {
-				return retry.RetryableError(err)
+				return retry.RetryableError(fmt.Errorf("failed to poll certificate after enrollment: %s", err.Error()))
+			}
+			tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
+			// Check if the certificate has been added to all third parties
+			ok := hasThirdParties(polledCertificate, thirdParties)
+			if !ok {
+				return retry.RetryableError(fmt.Errorf("failed to find all third parties after enrollment : %v", polledCertificate.ThirdPartyData))
 			}
 			return nil
-
 		})
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
@@ -595,23 +602,7 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 	d.SigningAlgorithm = types.StringValue(certificate.SigningAlgorithm)
 }
 
-// Poll the certificate until all third parties are present in the 'thirdPartyData' field
-func pollForThirdParties(ctx context.Context, horizonClient *horizon.Horizon, certificateId string, thirdParties []string) error {
-	tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
-
-	polledCertificate, err := horizonClient.Certificate.Get(certificateId)
-	if err != nil {
-		return fmt.Errorf("failed to poll certificate after enrollment: %s", err.Error())
-	}
-	tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
-	// Check if the certificate have been added to all third parties
-	if !certificateContainsAllThirdParties(polledCertificate, thirdParties) {
-		return fmt.Errorf("failed to find all third parties after enrollment : %v")
-	}
-	return nil
-}
-
-func certificateContainsAllThirdParties(cert *horizontypes.Certificate, thirdParties []string) bool {
+func hasThirdParties(cert *horizontypes.Certificate, thirdParties []string) bool {
 	// build a set of connectors present in the certificate
 	connectors := make(map[string]struct{}, len(cert.ThirdPartyData))
 	for _, tpData := range cert.ThirdPartyData {
