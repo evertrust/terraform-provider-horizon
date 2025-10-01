@@ -3,8 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/evertrust/horizon-go"
 	horizontypes "github.com/evertrust/horizon-go/types"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -13,12 +16,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"time"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &CertificateResource{}
-var _ resource.ResourceWithImportState = &CertificateResource{}
+var (
+	_ resource.Resource                = &CertificateResource{}
+	_ resource.ResourceWithImportState = &CertificateResource{}
+)
 
 func NewCertificateResource() resource.Resource {
 	return &CertificateResource{}
@@ -47,14 +52,17 @@ type certificateLabelModel struct {
 
 // certificateResourceModel describes the resource data model.
 type certificateResourceModel struct {
-	Id           types.String `tfsdk:"id"`
-	Profile      types.String `tfsdk:"profile"`
-	Owner        types.String `tfsdk:"owner"`
-	Team         types.String `tfsdk:"team"`
-	ContactEmail types.String `tfsdk:"contact_email"`
-	Subject      types.Set    `tfsdk:"subject"`
-	Sans         types.Set    `tfsdk:"sans"`
-	Labels       types.Set    `tfsdk:"labels"`
+	Id                  types.String `tfsdk:"id"`
+	Profile             types.String `tfsdk:"profile"`
+	Owner               types.String `tfsdk:"owner"`
+	Team                types.String `tfsdk:"team"`
+	ContactEmail        types.String `tfsdk:"contact_email"`
+	Subject             types.Set    `tfsdk:"subject"`
+	Sans                types.Set    `tfsdk:"sans"`
+	Labels              types.Set    `tfsdk:"labels"`
+	WaitForThirdParties types.Set    `tfsdk:"wait_for_third_parties"`
+
+	// Settings
 
 	RevokeOnDelete types.Bool  `tfsdk:"revoke_on_delete"`
 	RenewBefore    types.Int64 `tfsdk:"renew_before"`
@@ -75,6 +83,8 @@ type certificateResourceModel struct {
 	RevocationDate      types.Int64  `tfsdk:"revocation_date"`
 	KeyType             types.String `tfsdk:"key_type"`
 	SigningAlgorithm    types.String `tfsdk:"signing_algorithm"`
+
+	Timeouts timeouts.Value `tfsdk:"timeouts"`
 }
 
 func (r *CertificateResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -157,6 +167,11 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 						},
 					},
 				},
+			},
+			"wait_for_third_parties": schema.SetAttribute{
+				Description: "Third parties ids to which the certificate will be published.",
+				Optional:    true,
+				ElementType: types.StringType,
 			},
 			"owner": schema.StringAttribute{
 				Optional:    true,
@@ -245,6 +260,11 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Description: "DN of the certificate.",
 			},
 		},
+		Blocks: map[string]schema.Block{
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{
+				Create: true,
+			}),
+		},
 	}
 }
 
@@ -309,7 +329,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 		// Set Subject
 		subject := make([]certificateSubjectModel, 0, len(data.Subject.Elements()))
-		resp.Diagnostics.Append(data.Subject.ElementsAs(context.Background(), &subject, false)...)
+		resp.Diagnostics.Append(data.Subject.ElementsAs(ctx, &subject, false)...)
 		template.Subject = make([]horizontypes.IndexedDNElement, 0, len(subject))
 		for _, dnElement := range subject {
 			template.Subject = append(template.Subject, horizontypes.IndexedDNElement{
@@ -321,7 +341,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 		// Set SANs
 		sans := make([]certificateSanModel, 0, len(data.Sans.Elements()))
-		resp.Diagnostics.Append(data.Sans.ElementsAs(context.Background(), &sans, false)...)
+		resp.Diagnostics.Append(data.Sans.ElementsAs(ctx, &sans, false)...)
 		template.Sans = make([]horizontypes.ListSANElement, 0, len(sans))
 		for _, sanElement := range sans {
 			values := make([]string, 0, len(sanElement.Value))
@@ -340,7 +360,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 	// Set Labels
 	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
-	resp.Diagnostics.Append(data.Labels.ElementsAs(context.Background(), &labels, false)...)
+	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
 	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
 	for _, label := range labels {
 		template.Labels = append(template.Labels, horizontypes.LabelElement{
@@ -362,6 +382,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: data.ContactEmail.ValueString()}}
 	}
 
+	// Enroll the certificate
 	response, err := r.client.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
 		Profile:  data.Profile.ValueString(),
 		Template: template,
@@ -371,6 +392,37 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to enroll certificate", err.Error())
 		return
+	}
+
+	// Check that certificates are successfully added to Third Parties
+	thirdParties := make([]string, 0, len(data.WaitForThirdParties.Elements()))
+	resp.Diagnostics.Append(data.WaitForThirdParties.ElementsAs(ctx, &thirdParties, false)...)
+
+	createTimeout, diags := data.Timeouts.Create(ctx, 5*time.Minute)
+	resp.Diagnostics.Append(diags...)
+
+	// If ThirdParties were defined, poll the certificate until all of them are in the 'thirdPartyData' field
+	if len(thirdParties) > 0 {
+		err = retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
+			certificateId := response.Certificate.Id
+			tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
+
+			polledCertificate, err := r.client.Certificate.Get(certificateId)
+			if err != nil {
+				return retry.RetryableError(fmt.Errorf("failed to poll certificate after enrollment: %s", err.Error()))
+			}
+			tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
+			// Check if the certificate has been added to all third parties
+			ok := hasThirdParties(polledCertificate, thirdParties)
+			if !ok {
+				return retry.RetryableError(fmt.Errorf("failed to find all third parties after enrollment : %v", polledCertificate.ThirdPartyData))
+			}
+			return nil
+		})
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
+			return
+		}
 	}
 
 	fillResourceFromCertificate(&data, response.Certificate)
@@ -445,7 +497,7 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 
 	// Set Labels
 	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
-	resp.Diagnostics.Append(data.Labels.ElementsAs(context.Background(), &labels, false)...)
+	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
 	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
 	for _, label := range labels {
 		template.Labels = append(template.Labels, horizontypes.LabelElement{
@@ -533,6 +585,7 @@ func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.Va
 	}
 }
 
+// Fill the computed attributes of the resource
 func fillResourceFromCertificate(d *certificateResourceModel, certificate *horizontypes.Certificate) {
 	d.Id = types.StringValue(certificate.Id)
 	d.Certificate = types.StringValue(certificate.Certificate)
@@ -547,4 +600,20 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 	d.RevocationDate = types.Int64Value(int64(certificate.RevocationDate))
 	d.KeyType = types.StringValue(certificate.KeyType)
 	d.SigningAlgorithm = types.StringValue(certificate.SigningAlgorithm)
+}
+
+func hasThirdParties(cert *horizontypes.Certificate, thirdParties []string) bool {
+	// build a set of connectors present in the certificate
+	connectors := make(map[string]struct{}, len(cert.ThirdPartyData))
+	for _, tpData := range cert.ThirdPartyData {
+		connectors[tpData.Connector] = struct{}{}
+	}
+
+	// check that all expected IDs are present
+	for _, tp := range thirdParties {
+		if _, ok := connectors[tp]; !ok {
+			return false
+		}
+	}
+	return true
 }
