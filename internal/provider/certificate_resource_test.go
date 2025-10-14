@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"fmt"
 	"testing"
 
 	horizontypes "github.com/evertrust/horizon-go/types"
@@ -84,7 +83,6 @@ func (s *CertificateSuite) TestFillResourceFromCertificate_OK() {
 
 	var dst certificateResourceModel
 	fillResourceFromCertificate(&dst, src)
-	fmt.Println(dst)
 
 	assert.Equal(t, dst.Id.ValueString(), src.Id)
 	assert.Equal(t, dst.Certificate.ValueString(), src.Certificate)
