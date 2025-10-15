@@ -1,0 +1,38 @@
+meta {
+  name: Register a F5 as3 connector
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/thirdparty/connectors
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:json {
+  {
+      "type": "f5as3",
+      "name": "f5as3Lab",
+      "hostname": "bigip.lab.evertrust.fr",
+      "credentials": "{{f5as3AuthCredentials}}",
+      "throttleDuration": "1s",
+      "throttleParallelism": 10,
+      "timeout": "30s"
+  }
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 201
+  res.body.name: isDefined
+}
+
+script:post-response {
+  bru.setEnvVar("F5As3Connector", res.getBody().name)
+}

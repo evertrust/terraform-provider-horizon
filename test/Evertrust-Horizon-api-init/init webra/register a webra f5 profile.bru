@@ -1,7 +1,7 @@
 meta {
-  name: register a webra profile
+  name: register a webra f5 profile
   type: http
-  seq: 1
+  seq: 2
 }
 
 post {
@@ -20,7 +20,7 @@ body:json {
   {
       "module": "webra",
       "authorizationMode": "authorized",
-      "name": "webra-profile",
+      "name": "webra-f5",
       "enabled": true,
       "pkiConnector": "evertrust-integrated-serverauth",
       "authorizationLevels": {
@@ -103,7 +103,14 @@ body:json {
           "selfRenew": false,
           "selfPopRenew": false
       },
-      "requestsPolicy": {},
+      "requestsPolicy": {
+          "enroll": "7 days",
+          "renew": "7 days",
+          "revoke": "7 days",
+          "update": "7 days",
+          "migrate": "7 days"
+      },
+      "renewalPeriod": "3000d",
       "displayName": [],
       "description": [],
       "certificateTemplate": {
@@ -151,10 +158,20 @@ body:json {
       },
       "csrDataMapping": {},
       "triggers": {
-          "onEnroll": [],
-          "onRenew": [],
-          "onRevoke": [],
-          "onExpire": null,
+          "onEnroll": [
+              "{{F5Trigger}}"
+          ],
+          "onRenew": [
+              "{{F5Trigger}}"
+          ],
+          "onRevoke": [
+              "{{F5Trigger}}"
+          ],
+          "onExpire": [
+              {
+                  "name": "{{F5Trigger}}"
+              }
+          ],
           "onPendingEnroll": null,
           "onPendingRevoke": null,
           "onPendingRecover": null,

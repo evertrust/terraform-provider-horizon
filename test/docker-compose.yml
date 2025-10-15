@@ -23,6 +23,9 @@ services:
     expose:
       - 9000
       - 9003
+    ports:
+      - "9000:9000"
+      - "9003:9003"
     networks:
       - horizon
     environment:
@@ -53,5 +56,3 @@ services:
 networks:
   horizon:
     driver: bridge
-    driver_opts:
-      com.docker.network.driver.mtu: "1420"

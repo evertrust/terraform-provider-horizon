@@ -1,7 +1,7 @@
 meta {
-  name: register a webra profile
+  name: Register a new auto validated profile
   type: http
-  seq: 1
+  seq: 16
 }
 
 post {
@@ -13,16 +13,33 @@ post {
 headers {
   X-API-ID: {{X-API-ID}}
   X-API-KEY: {{X-API-KEY}}
-  X-API-IDPROV: {{LOCAL-PROVIDER-NAME}}
 }
 
 body:json {
   {
-      "module": "webra",
-      "authorizationMode": "authorized",
-      "name": "webra-profile",
+      "module": "scep",
       "enabled": true,
+      "name": "evertrust-integrated-scep-auto",
+      "scepRA": "evertrust-scep-integrated-ra",
+      "validationRuleset": {
+          "rules": [ "\"\" = \"\"" ],
+          "threshold": 1
+      },
+      "caps": [
+          "SHA-256",
+          "AES"
+      ],
+      "encryptionAlgorithm": "AES_256",
+      "mode": "ra",
+      "revocation": {},
       "pkiConnector": "evertrust-integrated-serverauth",
+      "dnWhitelist": false,
+      "revokeOnScepRenew": true,
+      "passwordPolicy": null,
+      "revocationReason": "cACompromise",
+      "mscepEmulation": false,
+      "enrollmentNotifications": [],
+      "renewalNotifications": [],
       "authorizationLevels": {
           "enroll": {
               "accessLevel": "authorized"
@@ -31,9 +48,6 @@ body:json {
               "accessLevel": "authorized"
           },
           "approveEnroll": {
-              "accessLevel": "authorized"
-          },
-          "enrollApi": {
               "accessLevel": "authorized"
           },
           "revoke": {
@@ -65,74 +79,38 @@ body:json {
           },
           "approveUpdate": {
               "accessLevel": "authorized"
-          },
-          "recover": {
-              "accessLevel": "authorized"
-          },
-          "requestRecover": {
-              "accessLevel": "authorized"
-          },
-          "approveRecover": {
-              "accessLevel": "authorized"
-          },
-          "recoverApi": {
-              "accessLevel": "authorized"
           }
       },
       "cryptoPolicy": {
-          "defaultKeyType": "rsa-2048",
-          "authorizedKeyTypes": [
-              "rsa-2048",
-              "rsa-4096"
-          ],
-          "centralized": true,
-          "decentralized": false,
+          "centralized": false,
+          "decentralized": true,
           "escrow": false,
           "p12passwordPolicy": null,
-          "p12storeEncryptionType": "DES_AVERAGE",
-          "p12passwordMode": "random",
-          "showP12PasswordOnEnroll": true,
-          "showP12OnEnroll": true,
-          "showP12PasswordOnRecover": false,
-          "showP12OnRecover": false
+          "p12storeEncryptionType": "DES_AVERAGE"
       },
       "selfPermissions": {
           "selfRevoke": false,
+          "selfRequestRevoke": false,
           "selfUpdate": false,
-          "selfRecover": false,
-          "selfRenew": false,
-          "selfPopRenew": false
+          "selfRequestUpdate": false,
+          "selfRecover": null,
+          "selfRequestRecover": null
       },
-      "requestsPolicy": {},
+      "requestsPolicy": {
+          "revoke": "1 hour",
+          "update": "1 hour",
+          "migrate": "1 hour"
+      },
       "displayName": [],
       "description": [],
       "certificateTemplate": {
-          "ownerPolicy": {
-              "mandatory": false,
-              "editableByRequester": false,
-              "editableByApprover": false
-          },
-          "teamPolicy": {
-              "mandatory": false,
-              "editableByRequester": false,
-              "editableByApprover": false
-          },
-          "contactEmailPolicy": {
-              "mandatory": false,
-              "editableByRequester": true,
-              "editableByApprover": false
-          },
+          "metadataPolicies": [],
           "subject": [
               {
                   "type": "CN",
                   "mandatory": true,
                   "editableByRequester": true,
-                  "editableByApprover": false,
-                  "index": 2,
-                  "value": null,
-                  "regex": null,
-                  "testing": null,
-                  "computationRule": null
+                  "editableByApprover": false
               }
           ],
           "sans": [
@@ -140,27 +118,26 @@ body:json {
                   "type": "DNSNAME",
                   "editableByRequester": true,
                   "editableByApprover": false,
-                  "max": 2,
-                  "min": null,
-                  "regex": null,
-                  "testing": null,
-                  "computationRule": null,
-                  "index": 2
+                  "min": 1,
+                  "max": 1
               }
-          ]
+          ],
+          "extensions": []
+      },
+      "constraints": {
+          "keyStrictCheck": false
       },
       "csrDataMapping": {},
       "triggers": {
-          "onEnroll": [],
-          "onRenew": [],
-          "onRevoke": [],
           "onExpire": null,
           "onPendingEnroll": null,
           "onPendingRevoke": null,
-          "onPendingRecover": null,
           "onPendingUpdate": null,
           "onPendingMigrate": null
-      }
+      },
+      "renewalPeriod": "740 days",
+      "preValidationTtl": 0,
+      "authorizationMode": "auto-validation"
   }
 }
 
@@ -168,5 +145,8 @@ assert {
   res.body: isJson
   res.status: eq 201
   res.body.name: isDefined
-  res.body._id: isDefined
+}
+
+script:post-response {
+  bru.setEnvVar("scepProfileName", res.getBody().name)
 }

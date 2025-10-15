@@ -1,0 +1,104 @@
+meta {
+  name: Register a new ejcba scep profile
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/certificate/profiles
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:json {
+  {
+      "module": "scep",
+      "enabled": true,
+      "name": "evertrust-ejbca-scep",
+      "scepRA": "evertrust-scep-ejbca-ra",
+      "caps": [
+          "SHA-256",
+          "AES"
+      ],
+      "cryptoPolicy": {
+          "decentralized": true
+      },
+      "certificateTemplate": {
+          "labels": [
+              {
+                  "label": "{{COMMON_LABEL}}",
+                  "editableByRequester": true,
+                  "editableByApprover": true,
+                  "mandatory": true
+              }
+          ]
+      },
+      "encryptionAlgorithm": "AES_256",
+      "revocation": {},
+      "renewalPeriod": "740d",
+      "pkiConnector": "evertrust-ejbca-userauth",
+      "dnWhitelist": false,
+      "preValidation": true,
+      "preValidationTtl": "3600ms",
+      "postValidation": false,
+      "revokeOnScepRenew": true,
+      "revocationReason": "superseded",
+      "mscepEmulation": true,
+      "enrollmentNotifications": [],
+      "renewalNotifications": [],
+      "authorizationLevels": {
+          "requestEnroll": {
+              "accessLevel": "authorized"
+          },
+          "approveEnroll": {
+              "accessLevel": "authorized"
+          },
+          "revoke": {
+              "accessLevel": "authorized"
+          },
+          "requestRevoke": {
+              "accessLevel": "authorized"
+          },
+          "approveRevoke": {
+              "accessLevel": "authorized"
+          },
+          "search": {
+              "accessLevel": "authorized"
+          },
+          "requestUpdate": {
+              "accessLevel": "authorized"
+          },
+          "approveUpdate": {
+              "accessLevel": "authorized"
+          },
+          "update": {
+              "accessLevel": "authorized"
+          }
+      },
+      "mode": "ra",
+      "triggers": {},
+      "requestService": {},
+          "requestsPolicy": {
+          "enroll": "30m",
+          "revoke": "30m"
+      },
+      "passwordPolicy": "{{passwordPolicyName}}",
+      "selfPermissions": {},
+      "authorizationMode": "ndes"
+  }
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 201
+  res.body.name: isDefined
+}
+
+script:post-response {
+  bru.setEnvVar("scepProfileName", res.getBody().name)
+}

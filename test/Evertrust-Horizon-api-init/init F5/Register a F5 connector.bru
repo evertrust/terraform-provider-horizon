@@ -1,0 +1,45 @@
+meta {
+  name: Register a F5 connector
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/thirdparty/connectors
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:json {
+  {
+      "type": "f5client",
+      "name": "bigIpCICD",
+      "bigIPHostname": "newbigip.lab.evertrust.fr",
+      "credentials": "{{f5AuthCredentials}}",
+      "partition": "Common",
+      "prefix": "horizoncicd-",
+      "version": "17.1.1.2",
+      "proxy": null,
+      "timeout": "10s",
+      "throttleDuration": "3s",
+      "throttleParallelism": 3,
+      "revokeOnRenew": false,
+      "revokeOnUpdate": false,
+      "maxStoredCertificatePerHolder": 1
+  }
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 201
+  res.body.name: isDefined
+}
+
+script:post-response {
+  bru.setEnvVar("F5Connector", res.getBody().name)
+}

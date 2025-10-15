@@ -1,0 +1,38 @@
+meta {
+  name: Register a new jamf third party connector
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/thirdparty/connectors
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:json {
+  {
+      "type": "jamf",
+      "name": "jamf-connector",
+      "throttleDuration": "60s",
+      "throttleParallelism": 1,
+      "endpoint": "https://localhost/evertrust/jamf",
+      "credentials": "{{tpAuthCredentials}}",
+      "maxStoredCertificatePerHolder": 1
+  }
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 201
+  res.body.name: isDefined
+}
+
+script:post-response {
+  bru.setEnvVar("jamfConnectorName", res.getBody().name)
+}

@@ -1,0 +1,35 @@
+meta {
+  name: Register a new server auth ejbca pki connector
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/pki/connectors
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:json {
+  {
+      "name": "evertrust-ejbca-serverauth",
+      "worker": 5,
+      "type": "ejbca",
+      "timeout": "15000ms",
+      "caName": "QACA",
+      "endPoint": "https://ejbca.lab.evertrust.fr/ejbca/ejbcaws/ejbcaws?wsdl",
+      "profile": "SERVER",
+      "authenticationCredentials": "{{ejbcaAuthCredentials}}"
+  }
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 201
+  res.body.name: isDefined
+}

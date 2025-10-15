@@ -2,13 +2,14 @@ package provider
 
 import (
 	"fmt"
+	"regexp"
 	"testing"
 
 	horizontypes "github.com/evertrust/horizon-go/types"
+	"github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/stretchr/testify/assert"
@@ -49,8 +50,57 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 func (s *CertificateSuite) TestAcc_Certificate_CRUD() {
 	t := s.T()
 
-	rnd := acctest.RandStringFromCharSet(6, acctest.CharSetAlphaNum)
 	resourceName := "horizon_certificate.test"
+
+	badProfile, err := uuid.GenerateUUID()
+	assert.NoError(t, err)
+	cfgBadProfile := fmt.Sprintf(`
+provider "horizon" {
+  alias = "with-creds"
+  endpoint = "%s"
+  username = "%s"
+  password = "%s"
+}
+
+resource "horizon_certificate" "test" {
+  provider = horizon.with-creds
+  profile   = "%s"
+  key_type         = "rsa-2048"
+  subject = [
+    {
+      element = "CN"
+      type    = "CN"
+      value   = "example.com"
+    }
+  ]
+}
+`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password, badProfile)
+
+	badUsername, err := uuid.GenerateUUID()
+	assert.NoError(t, err)
+	badPassword, err := uuid.GenerateUUID()
+	assert.NoError(t, err)
+	cfgBadCreds := fmt.Sprintf(`
+provider "horizon" {
+  alias = "with-creds"
+  endpoint = "%s"
+  username = "%s"
+  password = "%s"
+}
+
+resource "horizon_certificate" "test" {
+  provider = horizon.with-creds
+  profile   = "webra-profile"
+  key_type         = "rsa-2048"
+  subject = [
+    {
+      element = "CN"
+      type    = "CN"
+      value   = "example.com"
+    }
+  ]
+}
+`, s.HorizonEndpoint, badUsername, badPassword)
 
 	cfgCreate := fmt.Sprintf(`
 provider "horizon" {
@@ -62,13 +112,24 @@ provider "horizon" {
 
 resource "horizon_certificate" "test" {
   provider = horizon.with-creds
-  profile   = "default"
+  profile          = "webra-profile"
+  key_type         = "rsa-2048"
+  revoke_on_delete = true
+  renew_before     = 30
+
+  subject = [
+    {
+      element = "CN"
+      type    = "CN"
+      value   = "example.com"
+    }
+  ]
   labels = [
-    { label = "env", value = "acc-%s" }
+    { label = "env", value = "acc-test-label" }
   ]
   wait_for_third_parties = []
 }
-`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password, rnd)
+`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password)
 
 	cfgUpdate := fmt.Sprintf(`
 provider "horizon" {
@@ -80,7 +141,7 @@ provider "horizon" {
 
 resource "horizon_certificate" "test" {
   provider = horizon.with-creds
-  profile          = "EnrollmentProfile"
+  profile          = "webra-profile"
   key_type         = "rsa-2048"
   revoke_on_delete = true
   renew_before     = 30
@@ -98,16 +159,26 @@ resource "horizon_certificate" "test" {
     }
   ]
   labels = [
-    { label = "env", value = "acc-%s" },
+    { label = "env", value = "acc-test" },
     { label = "team", value = "platform" },
   ]
   wait_for_third_parties = []
 }
-`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password, rnd)
+`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
+			{
+				// Bad creds should imply error
+				Config:      cfgBadCreds,
+				ExpectError: regexp.MustCompile("Horizon returned a SEC-AUTH-002 error: Invalid credentials or principal"),
+			},
+			{
+				// Bad profile should imply error
+				Config:      cfgBadProfile,
+				ExpectError: regexp.MustCompile("Horizon returned a SEC-AUTH-002 error: Invalid credentials or principal"),
+			},
 			{
 				Config: cfgCreate,
 				Check: resource.ComposeTestCheckFunc(

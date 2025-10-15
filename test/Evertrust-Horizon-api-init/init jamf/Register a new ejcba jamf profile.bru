@@ -1,0 +1,84 @@
+meta {
+  name: Register a new ejcba jamf profile
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/certificate/profiles
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:json {
+  {
+      "module": "jamf",
+      "enabled": true,
+      "name": "evertrust-ejbca-jamf",
+      "scepRA": "evertrust-scep-ejbca-ra",
+      "caps": [
+          "SHA-256"
+      ],
+      "cryptoPolicy": {
+          "decentralized": true
+      },
+      "encryptionAlgorithm": "AES_256",
+      "revocation": {},
+      "renewalPeriod": "740d",
+      "pkiConnector": "evertrust-ejbca-userauth",
+      "dnWhitelist": false,
+      "preValidation": true,
+      "preValidationTtl": "1h",
+      "postValidation": false,
+      "revokeOnScepRenew": true,
+      "revocationReason": "superseded",
+      "enrollmentNotifications": [],
+      "renewalNotifications": [],
+      "authorizationLevels": {
+          "revoke": {
+              "accessLevel": "authorized"
+          },
+          "requestRevoke": {
+              "accessLevel": "authorized"
+          },
+          "approveRevoke": {
+              "accessLevel": "authorized"
+          },
+          "search": {
+              "accessLevel": "authorized"
+          },
+          "requestUpdate": {
+              "accessLevel": "authorized"
+          },
+          "approveUpdate": {
+              "accessLevel": "authorized"
+          },
+          "update": {
+              "accessLevel": "authorized"
+          }
+      },
+      "mode": "ra",
+      "triggers": {},
+      "requestService": {},
+      "requestsPolicy": {
+          "revoke": "30m"
+      },
+      "selfPermissions": {},
+      "thirdPartyConnector": "{{jamfConnectorName}}"
+  }
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 201
+  res.body.name: isDefined
+}
+
+script:post-response {
+  bru.setEnvVar("scepProfileName", res.getBody().name)
+}

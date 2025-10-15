@@ -18,23 +18,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Fetch secrets via Vault
-        uses: hashicorp/vault-action@v2
-        with:
-          url: ${{ vars.VAULT_ADDR }}
-          method: ${{ vars.VAULT_AUTH_METHOD }}
-          path: ${{ vars.VAULT_AUTH_PATH }}
-          secrets: |
-            ci/data/repositories/evertrust/terraform-provider-horizon license | LICENSE ;
-            ci/data/repositories/evertrust/terraform-provider-horizon quay_user | QUAY_USER ;
-            ci/data/repositories/evertrust/terraform-provider-horizon quay_password | QUAY_USER ;
-
       - name: Log in to Quay registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
         with:
           registry: quay.io
-          username: ${{ vars.QUAY_USER }}
-          password: ${{ vars.QUAY_TOKEN }}
+          username: ${{ secrets.QUAY_USER }}
+          password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Set up Docker
         uses: docker/setup-docker-action@v4
@@ -50,7 +39,7 @@ jobs:
         run: make setup
         env:
           EVT_GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-          LICENSE: ${{ vars.LICENSE }}
+          LICENSE: ${{ secrets.LICENSE }}
 
       - name: Run Init tests
         if: always() && steps.setup-tests.outcome == 'success'
