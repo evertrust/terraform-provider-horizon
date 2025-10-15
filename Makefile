@@ -61,6 +61,9 @@ test-init:
 	fi; \
 	exit $$RESULT
 
+go-test:
+	TF_ACC=1 go test ./... -v
+
 #============= cleanup tests
 cleanup-tests:
 	RESULT=0; \

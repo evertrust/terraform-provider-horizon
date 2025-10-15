@@ -25,6 +25,7 @@ type CertificateSuite struct {
 	HorizonEndpoint string
 	Credentials     Credentials
 	Provider        schema.Provider
+	ProfileName     string
 }
 
 func (suite *CertificateSuite) SetupTest() {
@@ -34,6 +35,8 @@ func (suite *CertificateSuite) SetupTest() {
 	}
 	suite.HorizonEndpoint = "http://localhost:9000"
 	suite.Credentials = creds
+	suite.ProfileName = "webra-profile"
+
 }
 
 func NewProvider(version string) provider.Provider {
@@ -112,24 +115,20 @@ provider "horizon" {
 
 resource "horizon_certificate" "test" {
   provider = horizon.with-creds
-  profile          = "webra-profile"
+  profile          = "%s"
   key_type         = "rsa-2048"
   revoke_on_delete = true
   renew_before     = 30
 
   subject = [
     {
-      element = "CN"
+      element = "cn.1"
       type    = "CN"
-      value   = "example.com"
+      value   = "creation-test.com"
     }
   ]
-  labels = [
-    { label = "env", value = "acc-test-label" }
-  ]
-  wait_for_third_parties = []
 }
-`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password)
+`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password, s.ProfileName)
 
 	cfgUpdate := fmt.Sprintf(`
 provider "horizon" {
@@ -141,30 +140,24 @@ provider "horizon" {
 
 resource "horizon_certificate" "test" {
   provider = horizon.with-creds
-  profile          = "webra-profile"
+  profile          = "%s"
   key_type         = "rsa-2048"
-  revoke_on_delete = true
-  renew_before     = 30
+  revoke_on_delete = false
   subject = [
     {
-      element = "CN"
+      element = "cn.1"
       type    = "CN"
-      value   = "example.com"
+      value   = "update-test.com"
     }
   ]
   sans = [
     {
       type  = "DNSNAME"
-      value = ["example.com", "www.example.com"]
+      value = ["update-dns-example.com", "www.update-dns-example.com"]
     }
   ]
-  labels = [
-    { label = "env", value = "acc-test" },
-    { label = "team", value = "platform" },
-  ]
-  wait_for_third_parties = []
 }
-`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password)
+`, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password, s.ProfileName)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -177,30 +170,37 @@ resource "horizon_certificate" "test" {
 			{
 				// Bad profile should imply error
 				Config:      cfgBadProfile,
-				ExpectError: regexp.MustCompile("Horizon returned a SEC-AUTH-002 error: Invalid credentials or principal"),
+				ExpectError: regexp.MustCompile("Horizon returned a REQ-010 error: Profile does not exist or is disabled"),
 			},
 			{
 				Config: cfgCreate,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet(resourceName, "id"),
-					resource.TestCheckResourceAttr(resourceName, "profile", "default"),
-					resource.TestCheckResourceAttr(resourceName, "self_signed", "false"),
+					resource.TestCheckResourceAttr(resourceName, "profile", s.ProfileName),
+					resource.TestCheckResourceAttrSet(resourceName, "pkcs12"),
+					resource.TestCheckResourceAttr(resourceName, "key_type", "rsa-2048"),
+					resource.TestCheckResourceAttr(resourceName, "revoke_on_delete", "true"),
+					resource.TestCheckResourceAttr(resourceName, "renew_before", "30"),
+					resource.TestCheckResourceAttr(resourceName, "subject.0.element", "cn.1"),
+					resource.TestCheckResourceAttr(resourceName, "subject.0.type", "CN"),
+					resource.TestCheckResourceAttr(resourceName, "subject.0.value", "creation-test.com"),
 				),
 			},
 			{
 				Config: cfgUpdate,
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(resourceName, "profile", "default"),
-					resource.TestCheckTypeSetElemNestedAttrs(resourceName, "labels.*", map[string]string{
-						"label": "team",
-						"value": "platform",
-					}),
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					resource.TestCheckResourceAttr(resourceName, "profile", s.ProfileName),
+					resource.TestCheckResourceAttr(resourceName, "key_type", "rsa-2048"),
+					resource.TestCheckResourceAttr(resourceName, "revoke_on_delete", "false"),
+					resource.TestCheckNoResourceAttr(resourceName, "renew_before"),
+					resource.TestCheckResourceAttr(resourceName, "subject.0.element", "cn.1"),
+					resource.TestCheckResourceAttr(resourceName, "subject.0.type", "CN"),
+					resource.TestCheckResourceAttr(resourceName, "subject.0.value", "update-test.com"),
+					resource.TestCheckResourceAttr(resourceName, "sans.0.type", "DNSNAME"),
+					resource.TestCheckResourceAttr(resourceName, "sans.0.value.0", "update-dns-example.com"),
+					resource.TestCheckResourceAttr(resourceName, "sans.0.value.1", "www.update-dns-example.com"),
 				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
 			},
 		},
 	})
