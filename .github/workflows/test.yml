@@ -12,12 +12,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
-
+    runs-on: ubuntu-latest
     steps:
-
-      - name: Configure Runs-On
-        uses: runs-on/action@v2
 
       - name: Checkout
         uses: actions/checkout@v5
@@ -30,6 +26,8 @@ jobs:
           path: ${{ vars.VAULT_AUTH_PATH }}
           secrets: |
             ci/data/repositories/evertrust/terraform-provider-horizon license | LICENSE ;
+            ci/data/repositories/evertrust/terraform-provider-horizon quay_user | QUAY_USER ;
+            ci/data/repositories/evertrust/terraform-provider-horizon quay_password | QUAY_USER ;
 
       - name: Log in to Quay registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
