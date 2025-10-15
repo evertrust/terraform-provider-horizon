@@ -50,7 +50,7 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 	},
 }
 
-func (s *CertificateSuite) TestAcc_Certificate_CRUD() {
+func (s *CertificateSuite) TestAcc_Certificate_CREATE() {
 	t := s.T()
 
 	resourceName := "horizon_certificate.test"
@@ -130,7 +130,7 @@ resource "horizon_certificate" "test" {
 }
 `, s.HorizonEndpoint, s.Credentials.Username, s.Credentials.Password, s.ProfileName)
 
-	cfgUpdate := fmt.Sprintf(`
+	cfgCreate2 := fmt.Sprintf(`
 provider "horizon" {
   alias = "with-creds"
   endpoint = "%s"
@@ -147,13 +147,13 @@ resource "horizon_certificate" "test" {
     {
       element = "cn.1"
       type    = "CN"
-      value   = "update-test.com"
+      value   = "creation-test-2.com"
     }
   ]
   sans = [
     {
       type  = "DNSNAME"
-      value = ["update-dns-example.com", "www.update-dns-example.com"]
+      value = ["creation-2-dns-example.com", "www.creation-2-dns-example.com"]
     }
   ]
 }
@@ -187,7 +187,7 @@ resource "horizon_certificate" "test" {
 				),
 			},
 			{
-				Config: cfgUpdate,
+				Config: cfgCreate2,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet(resourceName, "id"),
 					resource.TestCheckResourceAttr(resourceName, "profile", s.ProfileName),
