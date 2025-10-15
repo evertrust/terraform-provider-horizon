@@ -10,12 +10,14 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
     steps:
+      - name: Configure Runs-On
+        uses: runs-on/action@v2
 
       - name: Checkout
         uses: actions/checkout@v3
-      
+
       - name: Unshallow
         run: git fetch --prune --unshallow
       
