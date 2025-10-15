@@ -12,14 +12,15 @@ permissions:
 
 jobs:
   test:
-    runs-on: runs-on=${{ github.run_id }}/runner=evertrust-large
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
 
       - name: Configure Runs-On
         uses: runs-on/action@v2
+
+      - name: Checkout
+        uses: actions/checkout@v5
 
       - name: Fetch secrets via Vault
         uses: hashicorp/vault-action@v2
