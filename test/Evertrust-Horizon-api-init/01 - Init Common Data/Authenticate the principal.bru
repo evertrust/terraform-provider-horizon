@@ -1,0 +1,23 @@
+meta {
+  name: Authenticate the principal
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{horizonUrl}}/api/v1/security/principals/self
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+  X-API-IDPROV: {{LOCAL-PROVIDER-NAME}}
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 200
+  res.headers['set-cookie']: matches csrf-token=.*?;
+}

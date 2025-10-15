@@ -1,0 +1,34 @@
+meta {
+  name: Register the v1rca
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/cas
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:json {
+  {
+      "name": "v1rca",
+      "certificate": "-----BEGIN CERTIFICATE-----\nMIIF0jCCA7qgAwIBAgIIL8K04mWDagYwDQYJKoZIhvcNAQENBQAwQTELMAkGA1UEBhMCRlIxEjAQBgNVBAoTCUV2ZXJUcnVzdDEeMBwGA1UEAxMVRXZlclRydXN0IExhYiBSb290IENBMB4XDTE5MDgzMDA5MDMwMFoXDTQ5MDgzMDA5MDMwMFowVDELMAkGA1UEBhMCRlIxEjAQBgNVBAoTCUV2ZXJUcnVzdDERMA8GA1UECxMIVmVuZG9yIDExHjAcBgNVBAMTFUV2ZXJUcnVzdCBMYWIgUm9vdCBDQTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAMMhOtD9/05W0jXrnovFJ+BOMiNeGBG+UPyBbdPZ4UbqZ4PkUIOysFQxWvvJgtz0UYpJVO50owWPT9aQqaYZfXAKUCubmUhUoLz7Ybilv6ujP5pWGLJ5DSTLB9nnw0dUwcyo8y+xeVCnFon0hyhwZQ30oWXO4Mb91Rj3Zj4Uq5NpveW40VYqz1LACZIjoROdmbq94Eb3bTPN2SSrDd7aEFCAUvwdZn1aFNF3rPbGm7sv3f3o/EYgp0S/nHdlllW4GVoSk5rilm6mw1e79dredJpN7wtZA60OYf/oslELgVY6wp6cahBz/4RaQ4/RzfY/hl98Z8mgOgscXsgBv4kJceCnaoul9kVzoH8f3LLkgRcAA4BL7KifiS56G9TRlKh+PHHRUrk+yQEfGnNRDbbSdWmn8jrZR7oP9gGCJh0Gki0q+QWJGgogzPv0sIQHsSzgqR8CgYvVR9l36RrrIrPDMRUELWHrPwGa4MQvZYI7N9TvjxH4IakuBYvjtF0ZOPHD+0bgboZ98jPL9AZFGSD5NYWe8jarN0zHIGkyT1MFWW8su03y7C/WCRFpA6DEXzGmM9M+JYx9KxDHusCLrxLuddVKTHA8maYv8dJKjPa4rSE5/aDmmfM3S0QZvn+VZ8bBNkBXPaOOhNGDFL7wWUDuoJVSa0AHdiZ+6+Bi5fjIdlwBAgMBAAGjgbowgbcwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUDICgRpv4Xl3o3QBpDWRf9XqsNU0wCwYDVR0PBAQDAgEGMDQGA1UdHwQtMCswKaAnoCWGI2h0dHA6Ly9jcmwtbGFiLmV2ZXJ0cnVzdC5mci9yY2EuY3JsMEIGCCsGAQUFBwEBBDYwNDAyBggrBgEFBQcwAoYmaHR0cDovL2FpYS1sYWIuZXZydHJ1c3QuZnIvYWlhL3JjYS5jcnQwDQYJKoZIhvcNAQENBQADggIBAKyIxzkwmIrXsKnkxzxQubyAgtVNuURNLAO49C8EsGxsOOc7qc3T4paUvxTpyqBqD2+iFpfLyUE1U3ehfR/b94J41WedygGQNmePxfm3CWzWYOfkjvgxnLsjF5drFvsN6T41vzkI59nPE6HbBLt9kjs1RU5bZUIQMMCwEalOgoY7RTupymjRYinxD11VplSte97RAb4vCg/IHE1zakZaYZ/f/WpJkL0tWyQHSLswV24ud6I/msV4LtYKj6ed5mygzHsWa5ug/pgv2u68FkJAU8g5MJQ44BM2hPWS2NLVESYaTIOusRjeixo5NnmueO1kVPKjePBk5ZHkmQYaqJ+ouls96wFY70Kgtj9yvJHl/LxebURWX6nNSFag2pTFWUjt8W149+hg0GdvWoWgZW0zYcs03r+LXZHUvpwofL9iUiy1uEBH+2FP/t+SAXDpk9mgCljGJZqIYNuCS+K+9AtEwWsmqymP81PeCOjwqSvO3cv6HXSg2pPAXi51jB+ckfveSuVzC/g3ZIoqD7Xiu3YfmLHl73TdmeSMXwtlXHE8RqCL8BoHjp6SJQYLNqQi46dtwxE7W8NnnxE7AEjBJWyDQaPL/tUYaYrwIgnp9X0FCm8TkaLsrUl6DsOtGAFi92+e64S+Qqidh4oy6AQt6ZAW6Gj7xwVIcC6rS9UFciRiBkJa\n-----END CERTIFICATE-----",
+          "trustedForAuthentication": false,
+          "trustedForServerAuthentication": false,
+          "trustedForClientAuthentication": true,
+          "outdatedRevocationStatusPolicy": "revoked",
+          "public": false
+  }
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 201
+  res.body.name: isDefined
+}
