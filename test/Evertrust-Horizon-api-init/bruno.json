@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Evertrust-Horizon-api-init",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

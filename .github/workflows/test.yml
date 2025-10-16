@@ -1,0 +1,50 @@
+name: tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Log in to Quay registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USER }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Setup Horizon stack
+        id: setup-tests
+        run: make setup
+        env:
+          EVT_GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          LICENSE: ${{ secrets.LICENSE }}
+
+      - name: Run Init tests
+        if: always() && steps.setup-tests.outcome == 'success'
+        id: test-init
+        run: make test-init
+
+      - name: Run tests
+        run: make go-test

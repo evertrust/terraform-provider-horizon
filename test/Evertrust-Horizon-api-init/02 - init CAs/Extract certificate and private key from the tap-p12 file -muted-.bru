@@ -1,0 +1,33 @@
+meta {
+  name: Extract certificate and private key from the tap-p12 file -muted-
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{horizonUrl}}/api/v1/rfc5280/pkcs12
+  body: multipartForm
+  auth: none
+}
+
+headers {
+  X-API-ID: {{X-API-ID}}
+  X-API-KEY: {{X-API-KEY}}
+}
+
+body:multipart-form {
+  password: evertrust123
+  pkcs12: @file(keystore/tap.p12)
+}
+
+assert {
+  res.body: isJson
+  res.status: eq 200
+  res.body.certificate.pem: isDefined
+  res.body.privateKey: isDefined
+}
+
+script:post-response {
+  bru.setEnvVar("tapCertificate", res.getBody().certificate.pem.replace(/[\r\n]+/gm, "\\n"))
+  bru.setEnvVar("tapPrivateKey", res.getBody().privateKey.replace(/[\r\n]+/gm, "\\n"))
+}

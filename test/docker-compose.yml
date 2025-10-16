@@ -1,0 +1,58 @@
+name: horizon
+services:
+  nginx:
+    image: nginx:1
+    restart: always
+    expose:
+      - 443
+      - 80
+    volumes:
+      - ./etc/nginx:/etc/nginx/
+      - ./etc/ssl:/var/ssl
+    networks:
+      - horizon
+    depends_on:
+      - horizon
+    environment:
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+      HORIZON_HTTP_PORT: 9000
+      HORIZON_HTTPS_PORT: 9003
+  horizon:
+    platform: linux/amd64
+    image: ${DOCKER_IMAGE}
+    expose:
+      - 9000
+      - 9003
+    ports:
+      - "9000:9000"
+      - "9003:9003"
+    networks:
+      - horizon
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/horizon
+      HTTP_CERTIFICATE_HEADER: SSL_CLIENT_CERT
+      LICENSE: ${LICENSE}
+      LOGGING_LEVEL: DEBUG
+      LOGGING_LOGGERS: oshi=INFO org.mongodb=INFO kamon=INFO
+    env_file:
+      - .env
+    volumes:
+      - ./etc/conf/application.conf:/opt/horizon/etc/application.conf
+    depends_on:
+      - mongo
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7626/ready" ]
+      interval: 5s
+      timeout: 60s
+      retries: 20
+      start_period: 10s
+  mongo:
+    image: mongo:7
+    restart: always
+    expose:
+      - 27017
+    networks:
+      - horizon
+networks:
+  horizon:
+    driver: bridge
