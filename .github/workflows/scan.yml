@@ -18,6 +18,9 @@ jobs:
 
       - uses: runs-on/action@v2
 
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.2.3
+
       - name: Fetch secrets via Vault
         uses: hashicorp/vault-action@v2
         with:
@@ -30,24 +33,11 @@ jobs:
             ci/data/repositories/evertrust/terraform-provider-horizon/linear  LINEAR_TEAM_ID   |   LINEAR_TEAM_ID  ;
             ci/data/repositories/evertrust/terraform-provider-horizon/linear  LINEAR_TODO_STATUS   |   LINEAR_TODO_STATUS  ;
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: json
-          output: trivy-horizon-tf-provider.json
-          severity: CRITICAL,HIGH
-          args: --vex repo
+      - name: Run Trivy scan
+        run: trivy fs --severity CRITICAL,HIGH --format json --output trivy-horizon-tf-provider.json --vex repo .
 
-      - name: Generate SBOM (SPDX)
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: spdx
-          output: trivy-horizon-tf-provider.spdx
-          args: --vex repo
+      - name: Produce Sbom
+        run: trivy fs --format spdx --output trivy-horizon-tf-provider.spdx --vex repo .
 
       - name: Upload Trivy artifacts
         uses: actions/upload-artifact@v4
