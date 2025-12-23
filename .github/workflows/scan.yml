@@ -1,4 +1,4 @@
-name: Trivy scan and Scala Steward
+name: Trivy scan
 
 on:
   schedule:
