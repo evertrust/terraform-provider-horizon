@@ -7,7 +7,6 @@ on:
 
 jobs:
   trivy:
-    needs: discover-branches
     runs-on: runs-on=${{ github.run_id }}/runner=evertrust
     permissions:
       contents: write
