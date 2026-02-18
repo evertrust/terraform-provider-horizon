@@ -6,8 +6,8 @@ certificates and their lifecycle.
 ## Quick Start
 
 * [Provider Documentation](https://registry.terraform.io/providers/EverTrust/horizon/latest)
-* [Horizon Documentation](https://docs.evertrust.fr/horizon)
-* [Evertrust Website](https://evertrust.fr)
+* [Horizon Documentation](https://docs.evertrust.fr/horizon/2.8/)
+* [Evertrust Website](https://evertrust.io)
 
 ## Compatibility
 
