@@ -2,7 +2,7 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -12,42 +12,37 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     steps:
-
       - name: Checkout
         uses: actions/checkout@v3
-      
+
       - name: Unshallow
         run: git fetch --prune --unshallow
-      
+
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "go.mod"
           cache: true
 
-      - name: Google auth
-        id: auth
-        uses: 'google-github-actions/auth@v1'
-        with: 
-          credentials_json: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
-      
-      - name: Get secret
-        id: secrets
-        uses: 'google-github-actions/get-secretmanager-secrets@v1'
-        with: 
-          secrets: |-
-            key:evertrust-internal/pgp-private-key
-            
+      - name: Fetch secrets via Vault
+        uses: hashicorp/vault-action@v2
+        with:
+          url: ${{ vars.VAULT_ADDR }}
+          method: ${{ vars.VAULT_AUTH_METHOD }}
+          path: ${{ vars.VAULT_AUTH_PATH }}
+          secrets: |
+            ci/data/repositories/evertrust/terraform-provider-horizon/key  private-key   |   PGP_PRIVATE_KEY  ;
+
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v5
         id: import_gpg
         with:
-          gpg_private_key: ${{ steps.secrets.outputs.key }}
-      
+          gpg_private_key: ${{ env.PGP_PRIVATE_KEY }}
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
-          version: '~> v1'
+          version: "~> v1"
           args: release --rm-dist
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
