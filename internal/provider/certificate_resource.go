@@ -67,10 +67,12 @@ type certificateResourceModel struct {
 	RevokeOnDelete types.Bool  `tfsdk:"revoke_on_delete"`
 	RenewBefore    types.Int64 `tfsdk:"renew_before"`
 
-	Csr         types.String `tfsdk:"csr"`
-	Pkcs12      types.String `tfsdk:"pkcs12"`
-	Password    types.String `tfsdk:"password"`
-	Certificate types.String `tfsdk:"certificate"`
+	Csr               types.String `tfsdk:"csr"`
+	Pkcs12            types.String `tfsdk:"pkcs12"`
+	Password          types.String `tfsdk:"password"`
+	Pkcs12WriteOnly   types.Bool   `tfsdk:"pkcs12_write_only"`
+	PasswordWriteOnly types.Bool   `tfsdk:"password_write_only"`
+	Certificate       types.String `tfsdk:"certificate"`
 
 	Thumbprint          types.String `tfsdk:"thumbprint"`
 	SelfSigned          types.Bool   `tfsdk:"self_signed"`
@@ -237,6 +239,14 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Optional:    true,
 				Computed:    true,
 				Sensitive:   true,
+			},
+			"pkcs12_write_only": schema.BoolAttribute{
+				Description: "When true, the pkcs12 value is used during apply but not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.",
+				Optional:    true,
+			},
+			"password_write_only": schema.BoolAttribute{
+				Description: "When true, the password value is used during apply but not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.",
+				Optional:    true,
 			},
 			"certificate": schema.StringAttribute{
 				Description: "Certificate in the PEM format.",
@@ -427,12 +437,16 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 
 	fillResourceFromCertificate(&data, response.Certificate)
 
-	if response.Pkcs12 != nil {
+	if response.Pkcs12 != nil && !data.Pkcs12WriteOnly.ValueBool() {
 		data.Pkcs12 = types.StringValue(response.Pkcs12.Value)
+	} else if data.Pkcs12WriteOnly.ValueBool() {
+		data.Pkcs12 = types.StringNull()
 	}
 
-	if response.Password != nil {
+	if response.Password != nil && !data.PasswordWriteOnly.ValueBool() {
 		data.Password = types.StringValue(response.Password.Value)
+	} else if data.PasswordWriteOnly.ValueBool() {
+		data.Password = types.StringNull()
 	}
 
 	// Save data into Terraform state
@@ -478,9 +492,17 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-	// Preserve existing PKCS12 and password from state
-	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("pkcs12"), &data.Pkcs12)...)
-	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("password"), &data.Password)...)
+	// Preserve existing PKCS12 and password from state only when not in write-only mode
+	if !data.Pkcs12WriteOnly.ValueBool() {
+		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("pkcs12"), &data.Pkcs12)...)
+	} else {
+		data.Pkcs12 = types.StringNull()
+	}
+	if !data.PasswordWriteOnly.ValueBool() {
+		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("password"), &data.Password)...)
+	} else {
+		data.Password = types.StringNull()
+	}
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -581,6 +603,14 @@ func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.Va
 
 		if len(data.Sans.Elements()) > 0 {
 			resp.Diagnostics.AddAttributeWarning(path.Root("sans"), "sans is ignored when csr is provided.", "")
+		}
+
+		if data.Pkcs12WriteOnly.ValueBool() {
+			resp.Diagnostics.AddAttributeWarning(path.Root("pkcs12_write_only"), "pkcs12_write_only has no effect when csr is provided (decentralized enrollment).", "")
+		}
+
+		if data.PasswordWriteOnly.ValueBool() {
+			resp.Diagnostics.AddAttributeWarning(path.Root("password_write_only"), "password_write_only has no effect when csr is provided (decentralized enrollment).", "")
 		}
 	}
 }

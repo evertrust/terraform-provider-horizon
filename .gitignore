@@ -16,3 +16,4 @@ version.tf
 gha-creds-*.json
 
 .idea
+/envtest
