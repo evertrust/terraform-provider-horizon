@@ -8,6 +8,7 @@ import (
 	"github.com/evertrust/horizon-go"
 	horizontypes "github.com/evertrust/horizon-go/types"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -308,20 +309,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	if data.Pkcs12WriteOnly.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("pkcs12_write_only"),
-			"pkcs12_write_only must be known at plan time",
-			"This flag controls whether sensitive PKCS12 material is persisted to state and cannot be derived from another resource's computed output.",
-		)
-	}
-	if data.PasswordWriteOnly.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("password_write_only"),
-			"password_write_only must be known at plan time",
-			"This flag controls whether the sensitive PKCS12 password is persisted to state and cannot be derived from another resource's computed output.",
-		)
-	}
+	resp.Diagnostics.Append(validateWriteOnlyFlags(data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -511,20 +499,7 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 
-	if data.Pkcs12WriteOnly.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("pkcs12_write_only"),
-			"pkcs12_write_only must be known at plan time",
-			"This flag controls whether sensitive PKCS12 material is persisted to state and cannot be derived from another resource's computed output.",
-		)
-	}
-	if data.PasswordWriteOnly.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("password_write_only"),
-			"password_write_only must be known at plan time",
-			"This flag controls whether the sensitive PKCS12 password is persisted to state and cannot be derived from another resource's computed output.",
-		)
-	}
+	resp.Diagnostics.Append(validateWriteOnlyFlags(data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -667,6 +642,26 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 	d.RevocationDate = types.Int64Value(int64(certificate.RevocationDate))
 	d.KeyType = types.StringValue(certificate.KeyType)
 	d.SigningAlgorithm = types.StringValue(certificate.SigningAlgorithm)
+}
+
+// validateWriteOnlyFlags rejects unknown values for the write-only flags.
+func validateWriteOnlyFlags(data certificateResourceModel) diag.Diagnostics {
+	var diags diag.Diagnostics
+	if data.Pkcs12WriteOnly.IsUnknown() {
+		diags.AddAttributeError(
+			path.Root("pkcs12_write_only"),
+			"pkcs12_write_only must be known at plan time",
+			"This flag controls whether sensitive PKCS12 material is persisted to state and cannot be derived from another resource's computed output.",
+		)
+	}
+	if data.PasswordWriteOnly.IsUnknown() {
+		diags.AddAttributeError(
+			path.Root("password_write_only"),
+			"password_write_only must be known at plan time",
+			"This flag controls whether the sensitive PKCS12 password is persisted to state and cannot be derived from another resource's computed output.",
+		)
+	}
+	return diags
 }
 
 func hasThirdParties(cert *horizontypes.Certificate, thirdParties []string) bool {
