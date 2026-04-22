@@ -241,11 +241,11 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Sensitive:   true,
 			},
 			"pkcs12_write_only": schema.BoolAttribute{
-				Description: "When true, the pkcs12 value is used during apply but not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.",
+				Description: "When true, the PKCS12 value returned/generated for centralized enrollment is not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.",
 				Optional:    true,
 			},
 			"password_write_only": schema.BoolAttribute{
-				Description: "When true, the password value is used during apply but not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.",
+				Description: "When true, the PKCS12 password is not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.",
 				Optional:    true,
 			},
 			"certificate": schema.StringAttribute{
@@ -304,6 +304,24 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if data.Pkcs12WriteOnly.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("pkcs12_write_only"),
+			"pkcs12_write_only must be known at plan time",
+			"This flag controls whether sensitive PKCS12 material is persisted to state and cannot be derived from another resource's computed output.",
+		)
+	}
+	if data.PasswordWriteOnly.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("password_write_only"),
+			"password_write_only must be known at plan time",
+			"This flag controls whether the sensitive PKCS12 password is persisted to state and cannot be derived from another resource's computed output.",
+		)
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -492,6 +510,25 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+
+	if data.Pkcs12WriteOnly.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("pkcs12_write_only"),
+			"pkcs12_write_only must be known at plan time",
+			"This flag controls whether sensitive PKCS12 material is persisted to state and cannot be derived from another resource's computed output.",
+		)
+	}
+	if data.PasswordWriteOnly.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("password_write_only"),
+			"password_write_only must be known at plan time",
+			"This flag controls whether the sensitive PKCS12 password is persisted to state and cannot be derived from another resource's computed output.",
+		)
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Preserve existing PKCS12 and password from state only when not in write-only mode
 	if !data.Pkcs12WriteOnly.ValueBool() {
 		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("pkcs12"), &data.Pkcs12)...)
