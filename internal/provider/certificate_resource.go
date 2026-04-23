@@ -20,12 +20,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 )
 
-// Ensure provider defined types fully satisfy framework interfaces.
-var (
-	_ resource.Resource                = &CertificateResource{}
-	_ resource.ResourceWithImportState = &CertificateResource{}
-)
-
 func NewCertificateResource() resource.Resource {
 	return &CertificateResource{}
 }

@@ -3,7 +3,14 @@ package provider
 import (
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+)
+
+// Ensure provider defined types fully satisfy framework interfaces.
+var (
+	_ resource.Resource                = &CertificateResource{}
+	_ resource.ResourceWithImportState = &CertificateResource{}
 )
 
 func TestValidateWriteOnlyFlags(t *testing.T) {
