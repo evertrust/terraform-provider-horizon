@@ -1,0 +1,23 @@
+[tools]
+go = "latest"
+
+[tasks.build]
+description = "Build the provider binary"
+run = "go build -o bin/terraform-provider-horizon ."
+
+[tasks.test]
+description = "Run unit tests"
+run = "go test ./..."
+
+[tasks.testacc]
+description = "Run e2e acceptance tests against a live Horizon instance"
+depends = ["build"]
+run = """
+TF_ACC=1 go test ./internal/tests/ -v -run "TestAcc" -timeout 120s
+"""
+
+[tasks.testacc.env]
+HORIZON_ENDPOINT = "{{env.HORIZON_ENDPOINT}}"
+HORIZON_USERNAME = "{{env.HORIZON_USERNAME}}"
+HORIZON_PASSWORD = "{{env.HORIZON_PASSWORD}}"
+HORIZON_PROFILE  = "{{env.HORIZON_PROFILE}}"
