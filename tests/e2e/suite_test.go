@@ -55,7 +55,7 @@ func (s *E2ESuite) SetupSuite() {
 	binPath := filepath.Join(s.binDir, "terraform-provider-horizon")
 
 	t.Log("building provider binary")
-	build := exec.CommandContext(s.ctx, "go", "build", "-o", binPath, ".")
+	build := exec.CommandContext(s.ctx, "go", "build", "-buildvcs=false", "-o", binPath, ".")
 	build.Dir = s.repoRoot
 	out, err := build.CombinedOutput()
 	s.Require().NoErrorf(err, "go build: %s", out)
