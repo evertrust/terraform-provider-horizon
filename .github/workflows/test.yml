@@ -1,0 +1,94 @@
+name: test
+
+on:
+  pull_request:
+    branches: [ "main"]
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
+
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+        - horizon-version: 2.7.21
+          mongo-version: 7.0.12
+        - horizon-version: 2.8.4
+          mongo-version: 7.0.12
+
+    steps:
+      - name: Configure Runs-On
+        uses: runs-on/action@v2
+      - name: Fetch secrets via Vault
+        uses: hashicorp/vault-action@v2
+        with:
+          url: ${{ vars.VAULT_ADDR }}
+          method: ${{ vars.VAULT_AUTH_METHOD }}
+          path: ${{ vars.VAULT_AUTH_PATH }}
+          secrets: |
+            ci/data/repositories/evertrust/terraform-provider-horizon/quay username | QUAY_USERNAME;
+            ci/data/repositories/evertrust/terraform-provider-horizon/quay password | QUAY_PASSWORD;
+            ci/data/repositories/evertrust/terraform-provider-horizon/licenses horizon_license | HRZ_LICENSE;
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Run tests Linux
+        env:
+          LICENSE: ${{ env.HRZ_LICENSE }}
+          DOCKER_AUTH_CONFIG: "{\"auths\": {\"https://quay.io/evertrust\": {\"username\": \"${{ env.QUAY_USERNAME }}\", \"password\": \"${{ env.QUAY_PASSWORD }}\"}}}"
+          mongo_version: ${{ matrix.scenario.mongo-version }}
+          hrz_version: ${{ matrix.scenario.horizon-version }}
+        run: mise run e2e
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report-${{ matrix.scenario.horizon-version }}
+          path: tests/reports/go-e2e.html
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-horizon-logs-${{ matrix.scenario.horizon-version }}
+          path: tests/reports/horizon.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish Test Report
+        env:
+          NODE_OPTIONS: "--max_old_space_size=8192"
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: tests/reports/*.xml
+          check_name: >
+            Tests – run ${{ github.run_id }}
+            – ${{ runner.os }}
+            – hrz ${{ matrix.scenario.horizon-version }}
+          require_tests: true
