@@ -42,7 +42,7 @@ jobs:
           method: ${{ vars.VAULT_AUTH_METHOD }}
           path: ${{ vars.VAULT_AUTH_PATH }}
           secrets: |
-            ci/data/repositories/evertrust/terraform-provider-horizon/quay username | QUAY_USERNAME;
+            ci/data/repositories/evertrust/terraform-provider-horizon/quay user | QUAY_USERNAME;
             ci/data/repositories/evertrust/terraform-provider-horizon/quay password | QUAY_PASSWORD;
             ci/data/repositories/evertrust/terraform-provider-horizon/licenses horizon_license | HRZ_LICENSE;
 
