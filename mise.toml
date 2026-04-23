@@ -65,6 +65,7 @@ docker run --rm \
     -e MONGO_VERSION="$mongo_version" \
     -e HRZ_VERSION="$hrz_version" \
     -e PREVIEW="${preview-}" \
+    -e DOCKER_AUTH_CONFIG="${DOCKER_AUTH_CONFIG-}" \
     --network "$NETWORK_NAME" \
     "$E2E_DOCKER_IMAGE" \
     bash -c 'set +e
