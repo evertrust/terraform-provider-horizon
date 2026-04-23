@@ -79,16 +79,3 @@ jobs:
           path: tests/reports/horizon.log
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Publish Test Report
-        env:
-          NODE_OPTIONS: "--max_old_space_size=8192"
-        if: always()
-        uses: mikepenz/action-junit-report@v4
-        with:
-          report_paths: tests/reports/*.xml
-          check_name: >
-            Tests – run ${{ github.run_id }}
-            – ${{ runner.os }}
-            – hrz ${{ matrix.scenario.horizon-version }}
-          require_tests: true
