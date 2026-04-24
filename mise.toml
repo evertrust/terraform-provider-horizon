@@ -69,12 +69,17 @@ docker run --rm \
     --network "$NETWORK_NAME" \
     "$E2E_DOCKER_IMAGE" \
     bash -c 'set +e
+# Run unit tests (internal/provider/...) and the tagged e2e suite
+# (tests/e2e/...). The acceptance tests under tests/*.go are NOT in this
+# pattern on purpose — they need TF_ACC + a live Horizon and would skip here.
+# They are invoked from TestE2E/TestAcceptance as a subprocess with TF_ACC=1
+# and HORIZON_* pointed at the Horizon instance spun up by the e2e suite.
 gotestsum --format=standard-verbose \
     --junitfile=tests/reports/go-e2e.xml \
     --jsonfile=tests/reports/go-e2e.json \
-    -- -tags=e2e -timeout 30m ./tests/e2e/...
+    -- -tags=e2e -timeout 30m ./internal/... ./tests/e2e/...
 RC=$?
-go list -tags=e2e -json ./tests/e2e/... > tests/reports/go-modules.json
+go list -tags=e2e -json ./internal/... ./tests/e2e/... > tests/reports/go-modules.json
 cat tests/reports/go-e2e.json | go-test-report \
     -l tests/reports/go-modules.json \
     -o tests/reports/go-e2e.html \

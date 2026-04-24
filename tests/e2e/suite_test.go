@@ -4,8 +4,10 @@
 package tests
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -128,14 +130,88 @@ func (s *E2ESuite) TestDecentralized() {
 	s.runTftestFile("certificate_decentralized.tftest.hcl")
 }
 
-// TestRenew exercises the current renewal behavior, which is not a real
-// WebRA renew but a Read → RemoveResource → Create pattern: when a cert is
-// inside its renew_before window, Read drops it from state so the next
-// apply re-enrolls a brand-new certificate. The tftest file asserts the
-// new cert has a different id/serial/thumbprint than the one enrolled
-// by the preceding run block.
+// TestRenew exercises the renewal behavior: centralized certificates are
+// renewed in place via the WebRA renew endpoint when they enter their
+// renew_before window; decentralized ones go through destroy/create
+// (RequiresReplace) since a renew with the same CSR would reuse the key.
 func (s *E2ESuite) TestRenew() {
 	s.runTftestFile("certificate_renew.tftest.hcl")
+}
+
+// TestAcceptance runs the Terraform-plugin-testing acceptance suite under
+// tests/ against the Horizon instance spun up in SetupSuite. Those tests are
+// gated by TF_ACC and HORIZON_* env vars — they skip in any plain
+// `go test ./...` invocation. Running them here is what actually exercises
+// them end-to-end.
+//
+// Each TestAcc* function is surfaced as its own Go sub-test via t.Run so the
+// final report shows one line per acceptance test, with its own
+// outcome/output slice, instead of one opaque TestAcceptance entry.
+func (s *E2ESuite) TestAcceptance() {
+	t := s.T()
+	acceptanceDir := filepath.Join(s.repoRoot, "tests")
+
+	cliConfigPath := s.tfCLIConfigPath()
+
+	env := append(os.Environ(),
+		"TF_ACC=1",
+		"TF_CLI_CONFIG_FILE="+cliConfigPath,
+		"HORIZON_ENDPOINT="+s.instances.Nginx.HttpUrl,
+		"HORIZON_USERNAME="+AdminUsername,
+		"HORIZON_PASSWORD="+AdminPassword,
+		"HORIZON_PROFILE="+CentralizedProfile,
+		"HORIZON_DECENTRALIZED_PROFILE="+DecentralizedProfile,
+	)
+
+	t.Log("running acceptance tests under ./tests/ (go test -json)")
+	cmd := exec.CommandContext(s.ctx,
+		"go", "test",
+		"-json",
+		"-count=1",
+		"-timeout", "15m",
+		"-run", "^TestAcc",
+		".",
+	)
+	cmd.Dir = acceptanceDir
+	cmd.Env = env
+
+	stdout, err := cmd.StdoutPipe()
+	s.Require().NoError(err, "stdout pipe")
+	cmd.Stderr = &testWriter{t: t}
+
+	s.Require().NoError(cmd.Start(), "go test -json: start")
+
+	results := parseGoTestJSON(stdout)
+
+	// Wait() must run after the stream is fully drained; parseGoTestJSON
+	// returns only once stdout is closed.
+	runErr := cmd.Wait()
+
+	if len(results) == 0 {
+		s.Require().NoError(runErr, "acceptance tests failed with no per-test events captured")
+		t.Fatal("acceptance tests produced no test events — check the logs above")
+	}
+
+	for _, r := range results {
+		r := r
+		t.Run(r.Name, func(t *testing.T) {
+			for _, line := range strings.Split(strings.TrimRight(r.Output, "\n"), "\n") {
+				t.Log(line)
+			}
+			switch r.Outcome {
+			case "fail":
+				t.Fatalf("%s: FAIL (%.2fs)", r.Name, r.Elapsed)
+			case "skip":
+				t.Skipf("%s: SKIP", r.Name)
+			}
+		})
+	}
+}
+
+// tfCLIConfigPath returns the TF_CLI_CONFIG_FILE written by SetupSuite that
+// pins Terraform to the locally built provider binary via dev_overrides.
+func (s *E2ESuite) tfCLIConfigPath() string {
+	return filepath.Join(s.binDir, ".terraformrc")
 }
 
 // runTftestFile invokes `terraform test -filter=<file>`, then parses the JUnit
@@ -271,6 +347,89 @@ func parseJUnitCases(path string) ([]junitCase, error) {
 		return nil, fmt.Errorf("junit xml parse: %w", err)
 	}
 	return suite.TestCases, nil
+}
+
+// goTestEvent is the schema of a single line emitted by `go test -json`.
+type goTestEvent struct {
+	Action  string  `json:"Action"`
+	Test    string  `json:"Test"`
+	Output  string  `json:"Output"`
+	Elapsed float64 `json:"Elapsed"`
+}
+
+// goTestResult aggregates the per-test events of a single TestAcc function.
+type goTestResult struct {
+	Name    string
+	Outcome string // "pass", "fail", or "skip"
+	Elapsed float64
+	Output  string
+}
+
+// parseGoTestJSON consumes a `go test -json` stream and returns one
+// goTestResult per top-level test function. Sub-tests (TestAccX/step) have
+// their output folded into the parent's Output but do not surface as their
+// own entries. Output events that are not tied to a specific test (e.g. the
+// final "PASS" summary) are discarded.
+func parseGoTestJSON(r io.Reader) []goTestResult {
+	type buf struct {
+		out     strings.Builder
+		outcome string
+		elapsed float64
+	}
+	buffers := map[string]*buf{}
+	order := []string{}
+
+	getOrCreate := func(name string) *buf {
+		if b, ok := buffers[name]; ok {
+			return b
+		}
+		b := &buf{}
+		buffers[name] = b
+		order = append(order, name)
+		return b
+	}
+
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for scanner.Scan() {
+		var ev goTestEvent
+		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+		if ev.Test == "" {
+			continue
+		}
+		topLevel := strings.SplitN(ev.Test, "/", 2)[0]
+		b := getOrCreate(topLevel)
+		switch ev.Action {
+		case "output":
+			b.out.WriteString(ev.Output)
+		case "pass", "fail", "skip":
+			// Only the top-level test's terminal event decides the outcome
+			// we report; sub-test outcomes are already reflected in the
+			// captured output.
+			if ev.Test == topLevel {
+				b.outcome = ev.Action
+				b.elapsed = ev.Elapsed
+			}
+		}
+	}
+
+	results := make([]goTestResult, 0, len(order))
+	for _, name := range order {
+		b := buffers[name]
+		if b.outcome == "" {
+			// Never saw a terminal event (process killed, etc.) — treat as fail.
+			b.outcome = "fail"
+		}
+		results = append(results, goTestResult{
+			Name:    name,
+			Outcome: b.outcome,
+			Elapsed: b.elapsed,
+			Output:  b.out.String(),
+		})
+	}
+	return results
 }
 
 // testWriter forwards byte chunks to t.Log, one line at a time.

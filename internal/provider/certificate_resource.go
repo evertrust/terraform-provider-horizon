@@ -24,6 +24,7 @@ const (
 	webRAModule      = "webra"
 	workflowEnroll   = "enroll"
 	workflowUpdate   = "update"
+	workflowRenew    = "renew"
 	workflowRevoke   = "revoke"
 	revocationReason = "cessationofoperation"
 )
@@ -88,6 +89,7 @@ type certificateResourceModel struct {
 	RevocationDate      types.Int64  `tfsdk:"revocation_date"`
 	KeyType             types.String `tfsdk:"key_type"`
 	SigningAlgorithm    types.String `tfsdk:"signing_algorithm"`
+	RenewalTrigger      types.String `tfsdk:"renewal_trigger"`
 
 	Timeouts timeouts.Value `tfsdk:"timeouts"`
 }
@@ -224,7 +226,7 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Optional:    true,
 			},
 			"renew_before": schema.Int64Attribute{
-				Description: "How many days to renew the certificate before it expires. Certificate renewals rely on the Terraform workspace being run regularly. If the workspace is not run, the certificate will expire.",
+				Description: "How many days before expiration the certificate should be renewed. When a `terraform plan` or `terraform apply` runs inside that window, the provider triggers a real WebRA renew (in-place update) for centralized enrollments, and a destroy/create for decentralized enrollments (a renew with the same CSR would reuse the key, which is rarely desirable). Renewals rely on the Terraform workspace being run regularly; if it is not run, the certificate will expire.",
 				Optional:    true,
 			},
 			"csr": schema.StringAttribute{
@@ -271,6 +273,13 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 			"dn": schema.StringAttribute{
 				Computed:    true,
 				Description: "DN of the certificate.",
+			},
+			"renewal_trigger": schema.StringAttribute{
+				Computed:    true,
+				Description: "Internal marker derived from `not_after`. The provider flips this value to force Terraform to plan a renewal when the `renew_before` window opens. Not meant to be set or referenced by users; it exists only to make renewal plannable.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -538,20 +547,10 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-
-	renewalDate := time.UnixMilli(data.NotAfter.ValueInt64()).AddDate(0, 0, -int(data.RenewBefore.ValueInt64()))
-	if time.Now().After(renewalDate) && data.RenewBefore.ValueInt64() > 0 {
-		tflog.Info(ctx, fmt.Sprintf("Certificate is in its renewal period, renewing it (expires at %s, computed renewal date is %s).", time.UnixMilli(cert.NotAfter), renewalDate))
-		resp.State.RemoveResource(ctx)
-	} else {
-		tflog.Debug(ctx, fmt.Sprintf("Certificate is not in its renewal period (expires at %s, computed renewal date is %s).", time.UnixMilli(cert.NotAfter), renewalDate))
-	}
 }
 
 func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data certificateResourceModel
-
-	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 
 	resp.Diagnostics.Append(validateWriteOnlyFlags(data)...)
@@ -570,14 +569,76 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 	} else {
 		data.Password = types.StringNull()
 	}
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
+	var plannedTrigger types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("renewal_trigger"), &plannedTrigger)...)
+	var stateID types.String
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &stateID)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	renewRequested := plannedTrigger.IsUnknown()
+
+	certID := stateID.ValueString()
+
+	if renewRequested {
+		tflog.Info(ctx, fmt.Sprintf("Renewing certificate %s via WebRA renew", certID))
+
+		renewTemplate := models.NewWebRARenewRequestTemplateWithDefaults()
+		if !data.KeyType.IsNull() && !data.KeyType.IsUnknown() && data.KeyType.ValueString() != "" {
+			renewTemplate.SetKeyType(data.KeyType.ValueString())
+		}
+
+		renewSubmit := models.NewWebRARenewRequestOnSubmit(webRAModule, workflowRenew)
+		renewSubmit.SetCertificateId(certID)
+		renewSubmit.SetTemplate(*renewTemplate)
+		if !data.Password.IsNull() && !data.Password.IsUnknown() && data.Password.ValueString() != "" {
+			secret := models.NewSecretStringWithDefaults()
+			secret.SetValue(data.Password.ValueString())
+			renewSubmit.SetPassword(*secret)
+		}
+
+		renewResp, _, err := r.client.RequestAPI.RequestSubmit(ctx).
+			RequestSubmitRequest(models.WebRARenewRequestOnSubmitAsRequestSubmitRequest(renewSubmit)).
+			Execute()
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to renew certificate", err.Error())
+			return
+		}
+
+		renewed, renewDiags := extractRenewedCertificate(renewResp)
+		resp.Diagnostics.Append(renewDiags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		renewedCert := renewed.Certificate.Get()
+
+		certResp, _, err := r.client.CertificateAPI.CertificateGetId(ctx, renewedCert.Id).Execute()
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to fetch renewed certificate", err.Error())
+			return
+		}
+		normalized := certResp.GetCertificate()
+		fillResourceFromCertificate(&data, toCertificate(&normalized))
+		certID = data.Id.ValueString()
+
+		if renewed.Pkcs12.IsSet() && renewed.Pkcs12.Get() != nil && !data.Pkcs12WriteOnly.ValueBool() {
+			data.Pkcs12 = types.StringValue(renewed.Pkcs12.Get().GetValue())
+		} else if data.Pkcs12WriteOnly.ValueBool() {
+			data.Pkcs12 = types.StringNull()
+		}
+		if renewed.Password.IsSet() && renewed.Password.Get() != nil && !data.PasswordWriteOnly.ValueBool() {
+			data.Password = types.StringValue(renewed.Password.Get().GetValue())
+		} else if data.PasswordWriteOnly.ValueBool() {
+			data.Password = types.StringNull()
+		}
+	}
+
 	template := models.NewWebRAUpdateRequestTemplateWithDefaults()
 
-	// Set Labels
 	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
 	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
 	labelElements := make([]models.RequestLabelElement, 0, len(labels))
@@ -607,7 +668,7 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 	}
 
 	submit := models.NewWebRAUpdateRequestOnSubmit(*template, workflowUpdate)
-	submit.SetCertificateId(data.Id.ValueString())
+	submit.SetCertificateId(certID)
 
 	submitResp, _, err := r.client.RequestAPI.RequestSubmit(ctx).
 		RequestSubmitRequest(models.WebRAUpdateRequestOnSubmitAsRequestSubmitRequest(submit)).
@@ -617,15 +678,9 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	updateResp := submitResp.WebRAUpdateRequestOnSubmitResponse
-	if updateResp == nil {
-		resp.Diagnostics.AddError("Unexpected response type", "Expected WebRAUpdateRequestOnSubmitResponse")
-		return
-	}
-
-	cert := updateResp.Certificate.Get()
-	if cert == nil {
-		resp.Diagnostics.AddError("Missing certificate in update response", "The update response did not contain a certificate.")
+	cert, updateDiags := extractUpdatedCertificate(submitResp)
+	resp.Diagnostics.Append(updateDiags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
@@ -699,6 +754,52 @@ func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.Va
 	}
 }
 
+func (r *CertificateResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+
+	var state, plan certificateResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !isInRenewalWindow(state.NotAfter, plan.RenewBefore, time.Now()) {
+		return
+	}
+
+	tflog.Info(ctx, fmt.Sprintf("Certificate %s is in its renewal window (expires at %s).", state.Id.ValueString(), time.UnixMilli(state.NotAfter.ValueInt64())))
+
+	if !plan.Csr.IsNull() {
+		resp.RequiresReplace = append(resp.RequiresReplace, path.Root("renewal_trigger"))
+	}
+
+	plan.RenewalTrigger = types.StringUnknown()
+	plan.Id = types.StringUnknown()
+	plan.Serial = types.StringUnknown()
+	plan.Issuer = types.StringUnknown()
+	plan.Certificate = types.StringUnknown()
+	plan.Thumbprint = types.StringUnknown()
+	plan.PublicKeyThumbprint = types.StringUnknown()
+	plan.Dn = types.StringUnknown()
+	plan.SigningAlgorithm = types.StringUnknown()
+	plan.NotBefore = types.Int64Unknown()
+	plan.NotAfter = types.Int64Unknown()
+
+	if plan.Csr.IsNull() {
+		if !plan.Pkcs12WriteOnly.ValueBool() {
+			plan.Pkcs12 = types.StringUnknown()
+		}
+		if !plan.PasswordWriteOnly.ValueBool() {
+			plan.Password = types.StringUnknown()
+		}
+	}
+
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
 // Fill the computed attributes of the resource
 func fillResourceFromCertificate(d *certificateResourceModel, certificate *models.Certificate) {
 	d.Id = types.StringValue(certificate.Id)
@@ -718,6 +819,66 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *model
 	}
 	d.KeyType = types.StringValue(certificate.KeyType)
 	d.SigningAlgorithm = types.StringValue(certificate.SigningAlgorithm)
+	d.RenewalTrigger = types.StringValue(renewalTriggerFor(certificate.NotAfter))
+}
+
+func renewalTriggerFor(notAfter int64) string {
+	return fmt.Sprintf("renew-%d", notAfter)
+}
+
+// extractRenewedCertificate validates the shape of a renew response and
+// returns the inner WebRARenewRequestOnSubmitResponse. Diagnostics carry a
+// clear error for each failure mode; the caller must check diags before
+// dereferencing the returned pointer.
+func extractRenewedCertificate(resp *models.RequestSubmit201Response) (*models.WebRARenewRequestOnSubmitResponse, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	if resp == nil {
+		diags.AddError("Empty renew response", "The WebRA renew request returned no response body.")
+		return nil, diags
+	}
+	renewed := resp.WebRARenewRequestOnSubmitResponse
+	if renewed == nil {
+		diags.AddError("Unexpected response type", "Expected WebRARenewRequestOnSubmitResponse")
+		return nil, diags
+	}
+	if renewed.Certificate.Get() == nil {
+		diags.AddError("Missing certificate in renew response", "The renew response did not contain a certificate.")
+		return nil, diags
+	}
+	return renewed, diags
+}
+
+// extractUpdatedCertificate validates the shape of a metadata update response
+// and returns the Certificate payload. Same failure-mode contract as
+// extractRenewedCertificate.
+func extractUpdatedCertificate(resp *models.RequestSubmit201Response) (*models.Certificate, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	if resp == nil {
+		diags.AddError("Empty update response", "The WebRA update request returned no response body.")
+		return nil, diags
+	}
+	updated := resp.WebRAUpdateRequestOnSubmitResponse
+	if updated == nil {
+		diags.AddError("Unexpected response type", "Expected WebRAUpdateRequestOnSubmitResponse")
+		return nil, diags
+	}
+	cert := updated.Certificate.Get()
+	if cert == nil {
+		diags.AddError("Missing certificate in update response", "The update response did not contain a certificate.")
+		return nil, diags
+	}
+	return cert, diags
+}
+
+func isInRenewalWindow(notAfter types.Int64, renewBeforeDays types.Int64, now time.Time) bool {
+	if renewBeforeDays.IsNull() || renewBeforeDays.IsUnknown() || renewBeforeDays.ValueInt64() <= 0 {
+		return false
+	}
+	if notAfter.IsNull() || notAfter.IsUnknown() || notAfter.ValueInt64() == 0 {
+		return false
+	}
+	renewalDate := time.UnixMilli(notAfter.ValueInt64()).AddDate(0, 0, -int(renewBeforeDays.ValueInt64()))
+	return !now.Before(renewalDate)
 }
 
 // toCertificate converts a CertificateResponse into a Certificate so downstream
