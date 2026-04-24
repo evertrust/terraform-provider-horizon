@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/evertrust/horizon-go"
-	horizontypes "github.com/evertrust/horizon-go/types"
+	horizon "github.com/evertrust/horizon-go/v2"
+	"github.com/evertrust/horizon-go/v2/models"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -20,13 +20,21 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 )
 
+const (
+	webRAModule      = "webra"
+	workflowEnroll   = "enroll"
+	workflowUpdate   = "update"
+	workflowRevoke   = "revoke"
+	revocationReason = "cessationofoperation"
+)
+
 func NewCertificateResource() resource.Resource {
 	return &CertificateResource{}
 }
 
 // CertificateResource defines the resource implementation.
 type CertificateResource struct {
-	client *horizon.Horizon
+	client *horizon.APIClient
 }
 
 type certificateSubjectModel struct {
@@ -279,12 +287,12 @@ func (r *CertificateResource) Configure(ctx context.Context, req resource.Config
 		return
 	}
 
-	client, ok := req.ProviderData.(*horizon.Horizon)
+	client, ok := req.ProviderData.(*horizon.APIClient)
 
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *http.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *horizon.APIClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 
 		return
@@ -308,99 +316,152 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	var template *horizontypes.WebRAEnrollTemplate
+	template := models.NewWebRAEnrollRequestTemplateWithDefaults()
 
 	if !data.Csr.IsNull() {
-		var err error
-		template, err = r.client.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
-			Profile: data.Profile.ValueString(),
-			Csr:     data.Csr.ValueString(),
-		})
+		// Decentralized enrollment: the submit endpoint does not parse the
+		// CSR to fill subject/sans, so fetch the template first so the server
+		// extracts them, then reuse that seed for submit.
+		onTemplate := models.NewWebRAEnrollRequestOnTemplate(webRAModule, workflowEnroll)
+		onTemplate.SetProfile(data.Profile.ValueString())
+		seed := map[string]interface{}{"csr": data.Csr.ValueString()}
+		onTemplate.SetTemplate(seed)
 
+		tmplResp, _, err := r.client.RequestAPI.RequestTemplate(ctx).
+			RequestTemplateRequest(models.WebRAEnrollRequestOnTemplateAsRequestTemplateRequest(onTemplate)).
+			Execute()
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to get enroll template", err.Error())
 			return
+		}
+		onTemplateResp := tmplResp.WebRAEnrollRequestOnTemplateResponse
+		if onTemplateResp == nil {
+			resp.Diagnostics.AddError("Unexpected template response type", "Expected WebRAEnrollRequestOnTemplateResponse")
+			return
+		}
+
+		template.SetCsr(data.Csr.ValueString())
+		respTemplate := onTemplateResp.Template
+		if len(respTemplate.Subject) > 0 {
+			subjectElements := make([]models.IndexedDNElement, 0, len(respTemplate.Subject))
+			for _, e := range respTemplate.Subject {
+				el := models.IndexedDNElement{Element: e.Element}
+				if v, ok := e.GetValueOk(); ok && v != nil {
+					el.SetValue(*v)
+				}
+				subjectElements = append(subjectElements, el)
+			}
+			template.SetSubject(subjectElements)
+		}
+		if len(respTemplate.Sans) > 0 {
+			sanElements := make([]models.ListSANElement, 0, len(respTemplate.Sans))
+			for _, e := range respTemplate.Sans {
+				el := models.ListSANElement{Value: e.Value}
+				if t, ok := e.GetTypeOk(); ok && t != nil {
+					el.SetType(*t)
+				}
+				sanElements = append(sanElements, el)
+			}
+			template.SetSans(sanElements)
 		}
 
 		// This is a decentralized enrollment, so we'll ignore the PKCS12 and password parameters.
 		data.Pkcs12 = types.StringNull()
 		data.Password = types.StringNull()
 	} else {
-		// Start a centralized enrollment
-		var err error
-		template, err = r.client.Requests.GetEnrollTemplate(horizontypes.WebRAEnrollTemplateParams{
-			Profile: data.Profile.ValueString(),
-		})
-
-		if err != nil {
-			resp.Diagnostics.AddError("Failed to get enroll template", err.Error())
-			return
-		}
-
 		// Set Subject
 		subject := make([]certificateSubjectModel, 0, len(data.Subject.Elements()))
 		resp.Diagnostics.Append(data.Subject.ElementsAs(ctx, &subject, false)...)
-		template.Subject = make([]horizontypes.IndexedDNElement, 0, len(subject))
+		subjectElements := make([]models.IndexedDNElement, 0, len(subject))
 		for _, dnElement := range subject {
-			template.Subject = append(template.Subject, horizontypes.IndexedDNElement{
-				Element: dnElement.Element.ValueString(),
-				Type:    dnElement.Type.ValueString(),
-				Value:   dnElement.Value.ValueString(),
-			})
+			el := models.IndexedDNElement{Element: dnElement.Element.ValueString()}
+			el.SetValue(dnElement.Value.ValueString())
+			subjectElements = append(subjectElements, el)
 		}
+		template.SetSubject(subjectElements)
 
 		// Set SANs
 		sans := make([]certificateSanModel, 0, len(data.Sans.Elements()))
 		resp.Diagnostics.Append(data.Sans.ElementsAs(ctx, &sans, false)...)
-		template.Sans = make([]horizontypes.ListSANElement, 0, len(sans))
+		sanElements := make([]models.ListSANElement, 0, len(sans))
 		for _, sanElement := range sans {
 			values := make([]string, 0, len(sanElement.Value))
 			for _, value := range sanElement.Value {
 				values = append(values, value.ValueString())
 			}
-			template.Sans = append(template.Sans, horizontypes.ListSANElement{
-				Type:  sanElement.Type.ValueString(),
-				Value: values,
-			})
+			el := models.ListSANElement{Value: values}
+			el.SetType(sanElement.Type.ValueString())
+			sanElements = append(sanElements, el)
 		}
+		template.SetSans(sanElements)
 
-		template.KeyType = data.KeyType.ValueString()
-
+		if !data.KeyType.IsNull() {
+			template.SetKeyType(data.KeyType.ValueString())
+		}
 	}
 
 	// Set Labels
 	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
 	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
-	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
+	labelElements := make([]models.RequestLabelElement, 0, len(labels))
 	for _, label := range labels {
-		template.Labels = append(template.Labels, horizontypes.LabelElement{
-			Label: label.Label.ValueString(),
-			Value: &horizontypes.String{String: label.Value.ValueString()},
-		})
+		el := models.RequestLabelElement{Label: label.Label.ValueString()}
+		el.SetValue(label.Value.ValueString())
+		labelElements = append(labelElements, el)
 	}
+	template.SetLabels(labelElements)
 
 	if !data.Owner.IsNull() {
-		template.Owner = &horizontypes.OwnerElement{Value: &horizontypes.String{String: data.Owner.ValueString()}}
+		owner := models.NewCertificateOwnerElementWithDefaults()
+		owner.SetValue(data.Owner.ValueString())
+		template.SetOwner(*owner)
 	}
 
 	if !data.Team.IsNull() {
-		template.Team = &horizontypes.TeamElement{Value: &horizontypes.String{String: data.Team.ValueString()}}
+		team := models.NewCertificateTeamElementWithDefaults()
+		team.SetValue(data.Team.ValueString())
+		template.SetTeam(*team)
 	}
 
-	// Get contact email
 	if !data.ContactEmail.IsNull() {
-		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: data.ContactEmail.ValueString()}}
+		contact := models.NewCertificateContactEmailElementWithDefaults()
+		contact.SetValue(data.ContactEmail.ValueString())
+		template.SetContactEmail(*contact)
 	}
 
-	// Enroll the certificate
-	response, err := r.client.Requests.NewEnrollRequest(horizontypes.WebRAEnrollRequestParams{
-		Profile:  data.Profile.ValueString(),
-		Template: template,
-		Password: data.Password.ValueString(),
-	})
+	// Build the submit payload. NewWebRAEnrollRequestOnSubmit takes a profile
+	// argument but the generated constructor does not assign it — set it
+	// explicitly.
+	submit := models.NewWebRAEnrollRequestOnSubmit(
+		data.Profile.ValueString(),
+		webRAModule,
+		*template,
+		workflowEnroll,
+	)
+	submit.SetProfile(data.Profile.ValueString())
+	if !data.Password.IsNull() && data.Password.ValueString() != "" {
+		secret := models.NewSecretStringWithDefaults()
+		secret.SetValue(data.Password.ValueString())
+		submit.SetPassword(*secret)
+	}
 
+	apiReq := r.client.RequestAPI.RequestSubmit(ctx).
+		RequestSubmitRequest(models.WebRAEnrollRequestOnSubmitAsRequestSubmitRequest(submit))
+	submitResp, _, err := apiReq.Execute()
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to enroll certificate", err.Error())
+		return
+	}
+
+	enrollResp := submitResp.WebRAEnrollRequestOnSubmitResponse
+	if enrollResp == nil {
+		resp.Diagnostics.AddError("Unexpected response type", "Expected WebRAEnrollRequestOnSubmitResponse")
+		return
+	}
+
+	cert := enrollResp.Certificate.Get()
+	if cert == nil {
+		resp.Diagnostics.AddError("Missing certificate in enroll response", "The enroll response did not contain a certificate.")
 		return
 	}
 
@@ -414,18 +475,18 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	// If ThirdParties were defined, poll the certificate until all of them are in the 'thirdPartyData' field
 	if len(thirdParties) > 0 {
 		err = retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
-			certificateId := response.Certificate.Id
+			certificateId := cert.Id
 			tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
 
-			polledCertificate, err := r.client.Certificate.Get(certificateId)
-			if err != nil {
-				return retry.RetryableError(fmt.Errorf("failed to poll certificate after enrollment: %s", err.Error()))
+			polledResp, _, pErr := r.client.CertificateAPI.CertificateGetId(ctx, certificateId).Execute()
+			if pErr != nil {
+				return retry.RetryableError(fmt.Errorf("failed to poll certificate after enrollment: %s", pErr.Error()))
 			}
-			tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polledCertificate.ThirdPartyData))
+			polled := polledResp.GetCertificate()
+			tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polled.ThirdPartyData))
 			// Check if the certificate has been added to all third parties
-			ok := hasThirdParties(polledCertificate, thirdParties)
-			if !ok {
-				return retry.RetryableError(fmt.Errorf("failed to find all third parties after enrollment : %v", polledCertificate.ThirdPartyData))
+			if !hasThirdParties(polled.ThirdPartyData, thirdParties) {
+				return retry.RetryableError(fmt.Errorf("failed to find all third parties after enrollment : %v", polled.ThirdPartyData))
 			}
 			return nil
 		})
@@ -435,16 +496,16 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		}
 	}
 
-	fillResourceFromCertificate(&data, response.Certificate)
+	fillResourceFromCertificate(&data, cert)
 
-	if response.Pkcs12 != nil && !data.Pkcs12WriteOnly.ValueBool() {
-		data.Pkcs12 = types.StringValue(response.Pkcs12.Value)
+	if enrollResp.Pkcs12.IsSet() && enrollResp.Pkcs12.Get() != nil && !data.Pkcs12WriteOnly.ValueBool() {
+		data.Pkcs12 = types.StringValue(enrollResp.Pkcs12.Get().GetValue())
 	} else if data.Pkcs12WriteOnly.ValueBool() {
 		data.Pkcs12 = types.StringNull()
 	}
 
-	if response.Password != nil && !data.PasswordWriteOnly.ValueBool() {
-		data.Password = types.StringValue(response.Password.Value)
+	if enrollResp.Password.IsSet() && enrollResp.Password.Get() != nil && !data.PasswordWriteOnly.ValueBool() {
+		data.Password = types.StringValue(enrollResp.Password.Get().GetValue())
 	} else if data.PasswordWriteOnly.ValueBool() {
 		data.Password = types.StringNull()
 	}
@@ -464,7 +525,7 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 	}
 
 	tflog.Info(ctx, fmt.Sprintf("Getting certificate %s", data.Id.ValueString()))
-	res, err := r.client.Certificate.Get(data.Id.ValueString())
+	certResp, _, err := r.client.CertificateAPI.CertificateGetId(ctx, data.Id.ValueString()).Execute()
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to get certificate", err.Error())
 		return
@@ -472,18 +533,18 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 
 	tflog.Debug(ctx, fmt.Sprintf("Successfully got certificate %s", data.Id.ValueString()))
 
-	fillResourceFromCertificate(&data, res)
+	cert := certResp.GetCertificate()
+	fillResourceFromCertificate(&data, toCertificate(&cert))
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
-	//notAfter := time.Unix(int64(res.NotAfter/1000), 0)
 	renewalDate := time.UnixMilli(data.NotAfter.ValueInt64()).AddDate(0, 0, -int(data.RenewBefore.ValueInt64()))
 	if time.Now().After(renewalDate) && data.RenewBefore.ValueInt64() > 0 {
-		tflog.Info(ctx, fmt.Sprintf("Certificate is in its renewal period, renewing it (expires at %s, computed renewal date is %s).", time.UnixMilli(int64(res.NotAfter)), renewalDate))
+		tflog.Info(ctx, fmt.Sprintf("Certificate is in its renewal period, renewing it (expires at %s, computed renewal date is %s).", time.UnixMilli(cert.NotAfter), renewalDate))
 		resp.State.RemoveResource(ctx)
 	} else {
-		tflog.Debug(ctx, fmt.Sprintf("Certificate is not in its renewal period (expires at %s, computed renewal date is %s).", time.UnixMilli(int64(res.NotAfter)), renewalDate))
+		tflog.Debug(ctx, fmt.Sprintf("Certificate is not in its renewal period (expires at %s, computed renewal date is %s).", time.UnixMilli(cert.NotAfter), renewalDate))
 	}
 }
 
@@ -514,50 +575,61 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	template, err := r.client.Requests.GetUpdateTemplate(horizontypes.WebRAUpdateTemplateParams{
-		CertificateId: data.Id.ValueString(),
-	})
-
-	if err != nil {
-		resp.Diagnostics.AddError("Failed to get update template", err.Error())
-		return
-	}
+	template := models.NewWebRAUpdateRequestTemplateWithDefaults()
 
 	// Set Labels
 	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
 	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
-	template.Labels = make([]horizontypes.LabelElement, 0, len(labels))
+	labelElements := make([]models.RequestLabelElement, 0, len(labels))
 	for _, label := range labels {
-		template.Labels = append(template.Labels, horizontypes.LabelElement{
-			Label: label.Label.ValueString(),
-			Value: &horizontypes.String{String: label.Value.ValueString()},
-		})
+		el := models.RequestLabelElement{Label: label.Label.ValueString()}
+		el.SetValue(label.Value.ValueString())
+		labelElements = append(labelElements, el)
 	}
+	template.SetLabels(labelElements)
 
 	if !data.Owner.IsNull() {
-		template.Owner = &horizontypes.OwnerElement{Value: &horizontypes.String{String: data.Owner.ValueString()}}
+		owner := models.NewCertificateOwnerElementWithDefaults()
+		owner.SetValue(data.Owner.ValueString())
+		template.SetOwner(*owner)
 	}
 
 	if !data.Team.IsNull() {
-		template.Team = &horizontypes.TeamElement{Value: &horizontypes.String{String: data.Team.ValueString()}}
+		team := models.NewCertificateTeamElementWithDefaults()
+		team.SetValue(data.Team.ValueString())
+		template.SetTeam(*team)
 	}
 
-	// Get contact email
 	if !data.ContactEmail.IsNull() {
-		template.ContactEmail = &horizontypes.ContactEmailElement{Value: &horizontypes.String{String: data.ContactEmail.ValueString()}}
+		contact := models.NewCertificateContactEmailElementWithDefaults()
+		contact.SetValue(data.ContactEmail.ValueString())
+		template.SetContactEmail(*contact)
 	}
 
-	response, err := r.client.Requests.NewUpdateRequest(horizontypes.WebRAUpdateRequestParams{
-		CertificateId: data.Id.ValueString(),
-		Template:      template,
-	})
+	submit := models.NewWebRAUpdateRequestOnSubmit(*template, workflowUpdate)
+	submit.SetCertificateId(data.Id.ValueString())
 
+	submitResp, _, err := r.client.RequestAPI.RequestSubmit(ctx).
+		RequestSubmitRequest(models.WebRAUpdateRequestOnSubmitAsRequestSubmitRequest(submit)).
+		Execute()
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update certificate", err.Error())
 		return
 	}
 
-	fillResourceFromCertificate(&data, response.Certificate)
+	updateResp := submitResp.WebRAUpdateRequestOnSubmitResponse
+	if updateResp == nil {
+		resp.Diagnostics.AddError("Unexpected response type", "Expected WebRAUpdateRequestOnSubmitResponse")
+		return
+	}
+
+	cert := updateResp.Certificate.Get()
+	if cert == nil {
+		resp.Diagnostics.AddError("Missing certificate in update response", "The update response did not contain a certificate.")
+		return
+	}
+
+	fillResourceFromCertificate(&data, cert)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -574,10 +646,16 @@ func (r *CertificateResource) Delete(ctx context.Context, req resource.DeleteReq
 	}
 
 	if data.RevokeOnDelete.ValueBool() {
-		_, err := r.client.Requests.NewRevokeRequest(horizontypes.WebRARevokeRequestParams{
-			RevocationReason: horizontypes.CessationOfOperation,
-			CertificateId:    data.Id.ValueString(),
-		})
+		revokeTemplate := models.NewWebRARevokeRequestTemplateWithDefaults()
+		reason := revocationReason
+		revokeTemplate.RevocationReason.Set(&reason)
+
+		submit := models.NewWebRARevokeRequestOnSubmit(*revokeTemplate, workflowRevoke)
+		submit.SetCertificateId(data.Id.ValueString())
+
+		_, _, err := r.client.RequestAPI.RequestSubmit(ctx).
+			RequestSubmitRequest(models.WebRARevokeRequestOnSubmitAsRequestSubmitRequest(submit)).
+			Execute()
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to revoke certificate", err.Error())
 		}
@@ -622,7 +700,7 @@ func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.Va
 }
 
 // Fill the computed attributes of the resource
-func fillResourceFromCertificate(d *certificateResourceModel, certificate *horizontypes.Certificate) {
+func fillResourceFromCertificate(d *certificateResourceModel, certificate *models.Certificate) {
 	d.Id = types.StringValue(certificate.Id)
 	d.Certificate = types.StringValue(certificate.Certificate)
 	d.Thumbprint = types.StringValue(certificate.Thumbprint)
@@ -631,11 +709,55 @@ func fillResourceFromCertificate(d *certificateResourceModel, certificate *horiz
 	d.Dn = types.StringValue(certificate.Dn)
 	d.Serial = types.StringValue(certificate.Serial)
 	d.Issuer = types.StringValue(certificate.Issuer)
-	d.NotBefore = types.Int64Value(int64(certificate.NotBefore))
-	d.NotAfter = types.Int64Value(int64(certificate.NotAfter))
-	d.RevocationDate = types.Int64Value(int64(certificate.RevocationDate))
+	d.NotBefore = types.Int64Value(certificate.NotBefore)
+	d.NotAfter = types.Int64Value(certificate.NotAfter)
+	if certificate.RevocationDate.IsSet() && certificate.RevocationDate.Get() != nil {
+		d.RevocationDate = types.Int64Value(*certificate.RevocationDate.Get())
+	} else {
+		d.RevocationDate = types.Int64Value(0)
+	}
 	d.KeyType = types.StringValue(certificate.KeyType)
 	d.SigningAlgorithm = types.StringValue(certificate.SigningAlgorithm)
+}
+
+// toCertificate converts a CertificateResponse into a Certificate so downstream
+// helpers can keep working with a single shape.
+func toCertificate(r *models.CertificateResponse) *models.Certificate {
+	return &models.Certificate{
+		Id:                    r.Id,
+		Certificate:           r.Certificate,
+		ContactEmail:          r.ContactEmail,
+		CrlSynchronized:       r.CrlSynchronized,
+		DiscoveredTrusted:     r.DiscoveredTrusted,
+		DiscoveryData:         r.DiscoveryData,
+		DiscoveryInfo:         r.DiscoveryInfo,
+		Dn:                    r.Dn,
+		Escrowed:              r.Escrowed,
+		Extensions:            r.Extensions,
+		Grades:                r.Grades,
+		HolderId:              r.HolderId,
+		Issuer:                r.Issuer,
+		KeyType:               r.KeyType,
+		Labels:                r.Labels,
+		Metadata:              r.Metadata,
+		Module:                r.Module,
+		NotAfter:              r.NotAfter,
+		NotBefore:             r.NotBefore,
+		Owner:                 r.Owner,
+		Profile:               r.Profile,
+		PublicKeyThumbprint:   r.PublicKeyThumbprint,
+		RevocationDate:        r.RevocationDate,
+		RevocationReason:      r.RevocationReason,
+		Revoked:               r.Revoked,
+		SelfSigned:            r.SelfSigned,
+		Serial:                r.Serial,
+		SigningAlgorithm:      r.SigningAlgorithm,
+		SubjectAlternateNames: r.SubjectAlternateNames,
+		Team:                  r.Team,
+		ThirdPartyData:        r.ThirdPartyData,
+		Thumbprint:            r.Thumbprint,
+		TriggerResults:        r.TriggerResults,
+	}
 }
 
 // validateWriteOnlyFlags rejects unknown values for the write-only flags.
@@ -658,10 +780,10 @@ func validateWriteOnlyFlags(data certificateResourceModel) diag.Diagnostics {
 	return diags
 }
 
-func hasThirdParties(cert *horizontypes.Certificate, thirdParties []string) bool {
+func hasThirdParties(thirdPartyData []models.ThirdPartyItem, thirdParties []string) bool {
 	// build a set of connectors present in the certificate
-	connectors := make(map[string]struct{}, len(cert.ThirdPartyData))
-	for _, tpData := range cert.ThirdPartyData {
+	connectors := make(map[string]struct{}, len(thirdPartyData))
+	for _, tpData := range thirdPartyData {
 		connectors[tpData.Connector] = struct{}{}
 	}
 

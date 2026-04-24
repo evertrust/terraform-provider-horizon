@@ -172,8 +172,17 @@ func (s *E2ESuite) runTftestFile(file string) {
 					t.Log(line)
 				}
 			}
-			if tc.Failure != nil {
-				t.Fatalf("%s: %s\n%s", tc.Failure.Type, tc.Failure.Message, tc.Failure.Body)
+			// terraform test emits <error> for runtime errors (e.g. provider
+			// returned 4xx) and <failure> for assertion failures. Both must
+			// fail the Go sub-test. <skipped> marks cascaded skips.
+			if f := tc.Failure; f != nil {
+				t.Fatalf("%s: %s\n%s", f.Type, f.Message, f.Body)
+			}
+			if e := tc.Error; e != nil {
+				t.Fatalf("%s: %s\n%s", e.Type, e.Message, e.Body)
+			}
+			if s := tc.Skipped; s != nil {
+				t.Skipf("%s: %s", s.Message, s.Body)
 			}
 		})
 	}
@@ -221,6 +230,8 @@ type junitSuite struct {
 type junitCase struct {
 	Name    string        `xml:"name,attr"`
 	Failure *junitFailure `xml:"failure"`
+	Error   *junitFailure `xml:"error"`
+	Skipped *junitFailure `xml:"skipped"`
 }
 
 type junitFailure struct {

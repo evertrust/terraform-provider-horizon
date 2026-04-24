@@ -4,14 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"github.com/evertrust/horizon-go"
+	"net/url"
+
+	horizon "github.com/evertrust/horizon-go/v2"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"net/url"
 )
 
 // Ensure HorizonProvider satisfies various provider interfaces.
@@ -91,17 +92,23 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	client := horizon.New(horizon.NewHttpClient())
-
 	endpoint, err := url.Parse(data.Endpoint.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid endpoint URL", err.Error())
 		return
 	}
-	client.Http.SetBaseUrl(*endpoint)
+
+	cfg := horizon.NewConfiguration()
+	cfg.Servers = horizon.ServerConfigurations{
+		horizon.ServerConfiguration{URL: endpoint.String()},
+	}
+	// The generated SDK overrides the request URL scheme with cfg.Scheme when
+	// it is non-empty (default "https"). Honor the endpoint's scheme instead
+	// so a http://... endpoint isn't silently upgraded to https://.
+	cfg.Scheme = endpoint.Scheme
 
 	if data.SkipTlsVerify.ValueBool() {
-		client.Http.SkipTLSVerify()
+		cfg.GetTlsConfig().InsecureSkipVerify = true
 	}
 
 	if !data.Proxy.IsNull() {
@@ -110,13 +117,13 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 			resp.Diagnostics.AddError("Invalid proxy URL", err.Error())
 			return
 		}
-		client.Http.SetProxy(*proxyUrl)
+		cfg.SetProxyUrl(proxyUrl)
 	}
 
 	if !data.CaBundlePem.IsNull() {
 		pool := x509.NewCertPool()
 		pool.AppendCertsFromPEM([]byte(data.CaBundlePem.ValueString()))
-		client.Http.SetCaBundle(pool)
+		cfg.GetTlsConfig().RootCAs = pool
 	}
 
 	if !data.Username.IsNull() {
@@ -124,7 +131,7 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 			resp.Diagnostics.AddError("Password is required when username is provided.", "")
 			return
 		}
-		client.Http.SetPasswordAuth(data.Username.ValueString(), data.Password.ValueString())
+		cfg.SetPasswordAuth(data.Username.ValueString(), data.Password.ValueString())
 	} else if !data.ClientCertPem.IsNull() {
 		if data.ClientKeyPem.IsNull() {
 			resp.Diagnostics.AddError("client_key_pem is required when client_cert_pem is provided.", "")
@@ -136,11 +143,13 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 			resp.Diagnostics.AddError("Failed to load TLS certificate", err.Error())
 			return
 		}
-		client.Http.SetCertAuth(parsedCert)
+		cfg.SetCertAuth(parsedCert)
 	} else {
 		resp.Diagnostics.AddError("No authentication method provided", "Please provide either username/password or client_cert_pem/client_key_pem.")
 		return
 	}
+
+	client := horizon.NewAPIClient(cfg)
 
 	resp.DataSourceData = client
 	resp.ResourceData = client
