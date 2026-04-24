@@ -128,6 +128,16 @@ func (s *E2ESuite) TestDecentralized() {
 	s.runTftestFile("certificate_decentralized.tftest.hcl")
 }
 
+// TestRenew exercises the current renewal behavior, which is not a real
+// WebRA renew but a Read → RemoveResource → Create pattern: when a cert is
+// inside its renew_before window, Read drops it from state so the next
+// apply re-enrolls a brand-new certificate. The tftest file asserts the
+// new cert has a different id/serial/thumbprint than the one enrolled
+// by the preceding run block.
+func (s *E2ESuite) TestRenew() {
+	s.runTftestFile("certificate_renew.tftest.hcl")
+}
+
 // runTftestFile invokes `terraform test -filter=<file>`, then parses the JUnit
 // report (for pass/fail status) and the captured stdout (for per-run output)
 // so that each Terraform run block surfaces as its own Go sub-test with only
