@@ -21,3 +21,68 @@ HORIZON_ENDPOINT = "{{env.HORIZON_ENDPOINT}}"
 HORIZON_USERNAME = "{{env.HORIZON_USERNAME}}"
 HORIZON_PASSWORD = "{{env.HORIZON_PASSWORD}}"
 HORIZON_PROFILE  = "{{env.HORIZON_PROFILE}}"
+
+[env]
+E2E_DOCKER_IMAGE = "terraform-provider-horizon-e2e:latest"
+
+# Build the toolchain image used to run the e2e suite (Go + mongoimport + terraform).
+[tasks.docker-build-e2e]
+description = "Build the e2e Docker image"
+run = 'docker build -f dockerfiles/e2e.Dockerfile -t "$E2E_DOCKER_IMAGE" .'
+
+# Run the e2e suite inside a container. testcontainers-go spawns MongoDB + Horizon
+# + nginx as sibling containers via the mounted docker.sock; all four containers
+# share a dedicated network so they can resolve each other by name.
+#
+# Required env: LICENSE, hrz_version, mongo_version. Optional: preview (any
+# non-empty value to pull horizon from the local registry).
+[tasks.e2e]
+description = "Run e2e tests inside Docker"
+depends = ["docker-build-e2e"]
+run = '''
+set -e
+[ -n "${LICENSE-}" ]      || { echo "ERROR: LICENSE is required"; exit 1; }
+[ -n "${hrz_version-}" ]  || { echo "ERROR: hrz_version is required"; exit 1; }
+[ -n "${mongo_version-}" ]|| { echo "ERROR: mongo_version is required"; exit 1; }
+
+GOCACHE_HOST="${HOME}/.cache/go-build"
+GOMOD_HOST="${GOPATH:-${HOME}/go}/pkg/mod"
+mkdir -p tests/reports "$GOCACHE_HOST" "$GOMOD_HOST"
+
+NETWORK_NAME=$(openssl rand -hex 20)
+echo "creating docker network $NETWORK_NAME"
+docker network create "$NETWORK_NAME" >/dev/null
+trap "docker network rm $NETWORK_NAME >/dev/null 2>&1 || true" EXIT
+
+echo "running e2e container"
+docker run --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$(pwd):/workspace" \
+    -v "$GOCACHE_HOST:/root/.cache/go-build" \
+    -v "$GOMOD_HOST:/go/pkg/mod" \
+    -e LICENSE="$LICENSE" \
+    -e DOCKER_NETWORK="$NETWORK_NAME" \
+    -e MONGO_VERSION="$mongo_version" \
+    -e HRZ_VERSION="$hrz_version" \
+    -e PREVIEW="${preview-}" \
+    -e DOCKER_AUTH_CONFIG="${DOCKER_AUTH_CONFIG-}" \
+    --network "$NETWORK_NAME" \
+    "$E2E_DOCKER_IMAGE" \
+    bash -c 'set +e
+# Run unit tests (internal/provider/...) and the tagged e2e suite
+# (tests/e2e/...). The acceptance tests under tests/*.go are NOT in this
+# pattern on purpose — they need TF_ACC + a live Horizon and would skip here.
+# They are invoked from TestE2E/TestAcceptance as a subprocess with TF_ACC=1
+# and HORIZON_* pointed at the Horizon instance spun up by the e2e suite.
+gotestsum --format=standard-verbose \
+    --junitfile=tests/reports/go-e2e.xml \
+    --jsonfile=tests/reports/go-e2e.json \
+    -- -tags=e2e -timeout 30m ./internal/... ./tests/e2e/...
+RC=$?
+go list -tags=e2e -json ./internal/... ./tests/e2e/... > tests/reports/go-modules.json
+cat tests/reports/go-e2e.json | go-test-report \
+    -l tests/reports/go-modules.json \
+    -o tests/reports/go-e2e.html \
+    --title "terraform-provider-horizon-e2e" || true
+exit $RC'
+'''
