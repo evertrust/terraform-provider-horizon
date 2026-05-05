@@ -22,9 +22,11 @@ Compatibility between the provider and Horizon versions is as follows:
 
 ### Requirements
 
-* [Go](https://golang.org/doc/install) >= 1.21
-* [Terraform](https://www.terraform.io/downloads.html) >= 0.13
-* An Horizon instance
+* [Go](https://golang.org/doc/install) >= 1.25
+* [Terraform](https://www.terraform.io/downloads.html) >= 1.6 (for `terraform test`)
+* [mise](https://mise.jdx.dev/) for the task runner used below
+* Docker (for the e2e suite — it spins Horizon up via testcontainers)
+* An Horizon instance (only required for the live acceptance suite)
 
 ### Building The Provider
 
@@ -35,6 +37,8 @@ described [here](https://developer.hashicorp.com/terraform/plugin/debugging). Yo
   the fastest way to test a change.
 - Use Debugger-based Debugging which will allow you to run the provider separately from Terraform and attach a debugger
   to it. This is the best way to test a change thoroughly.
+
+`mise run build` produces the binary under `bin/`.
 
 ## Releasing
 

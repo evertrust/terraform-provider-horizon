@@ -54,3 +54,11 @@ output "not_before" {
 output "not_after" {
   value = horizon_certificate.test.not_after
 }
+
+output "dn" {
+  value = horizon_certificate.test.dn
+}
+
+output "issuer" {
+  value = horizon_certificate.test.issuer
+}

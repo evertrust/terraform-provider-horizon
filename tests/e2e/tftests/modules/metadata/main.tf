@@ -12,11 +12,15 @@ provider "horizon" {
   password = var.password
 }
 
+# sans / labels are SetNestedAttribute (not blocks), so they must be assigned
+# as collection values. Empty collection == omit.
 resource "horizon_certificate" "test" {
-  profile       = var.profile
-  key_type      = "rsa-2048"
-  renew_before  = var.renew_before_days
-  contact_email = var.contact_email
+  profile          = var.profile
+  key_type         = "rsa-2048"
+  owner            = var.owner
+  team             = var.team
+  contact_email    = var.contact_email
+  revoke_on_delete = var.revoke_on_delete
 
   subject = [
     {
@@ -25,6 +29,20 @@ resource "horizon_certificate" "test" {
       value   = var.cn
     }
   ]
+
+  sans = length(var.sans_dns) > 0 ? [
+    {
+      type  = "DNSNAME"
+      value = var.sans_dns
+    }
+  ] : null
+
+  labels = length(var.labels) > 0 ? [
+    for k, v in var.labels : {
+      label = k
+      value = v
+    }
+  ] : null
 }
 
 output "id" {
@@ -39,22 +57,6 @@ output "thumbprint" {
   value = horizon_certificate.test.thumbprint
 }
 
-output "not_before" {
-  value = horizon_certificate.test.not_before
-}
-
-output "not_after" {
-  value = horizon_certificate.test.not_after
-}
-
 output "dn" {
   value = horizon_certificate.test.dn
-}
-
-output "issuer" {
-  value = horizon_certificate.test.issuer
-}
-
-output "contact_email" {
-  value = horizon_certificate.test.contact_email
 }

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -22,11 +23,9 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+const stagedProviderVersion = "0.0.1"
+
 // TestE2E is the Go entry point for the e2e suite. It delegates to E2ESuite,
-// which builds the provider, spins up Horizon once via testcontainers, then
-// runs one Test method per .tftest.hcl file. Each Terraform `run` block is
-// surfaced as a Go sub-test via JUnit parsing so reports show a separate line
-// per scenario instead of a single big TestE2E.
 func TestE2E(t *testing.T) {
 	suite.Run(t, new(E2ESuite))
 }
@@ -62,12 +61,26 @@ func (s *E2ESuite) SetupSuite() {
 	out, err := build.CombinedOutput()
 	s.Require().NoErrorf(err, "go build: %s", out)
 
+	s.stageProviderInMirror(binPath)
+
 	cliConfigPath := filepath.Join(s.binDir, ".terraformrc")
 	cliConfig := `provider_installation {
   dev_overrides {
     "registry.terraform.io/evertrust/horizon" = "` + s.binDir + `"
   }
-  direct {}
+  filesystem_mirror {
+    path    = "/opt/tf-mirror"
+    include = [
+      "registry.terraform.io/hashicorp/*",
+      "registry.terraform.io/evertrust/horizon",
+    ]
+  }
+  direct {
+    exclude = [
+      "registry.terraform.io/hashicorp/*",
+      "registry.terraform.io/evertrust/horizon",
+    ]
+  }
 }
 `
 	s.Require().NoError(os.WriteFile(cliConfigPath, []byte(cliConfig), 0o644))
@@ -86,6 +99,10 @@ func (s *E2ESuite) SetupSuite() {
 		"TF_VAR_decentralized_profile="+DecentralizedProfile,
 	)
 
+	if err := os.Remove(filepath.Join(s.tftestsDir, ".terraform.lock.hcl")); err != nil && !os.IsNotExist(err) {
+		s.Require().NoError(err, "remove stale lock file")
+	}
+
 	var initOut bytes.Buffer
 	initSinks := io.MultiWriter(&testWriter{t: t}, &initOut)
 	t.Log("running terraform init (installs tls provider + child modules)")
@@ -96,8 +113,6 @@ func (s *E2ESuite) SetupSuite() {
 	tfInit.Stderr = initSinks
 	s.Require().NoError(tfInit.Run(), "terraform init")
 
-	// Proof that the locally built provider binary is used, not the registry.
-	// The warning only appears when dev_overrides is actually honored.
 	s.Require().Contains(
 		initOut.String(),
 		"Provider development overrides are in effect",
@@ -120,33 +135,51 @@ func (s *E2ESuite) TearDownSuite() {
 	}
 }
 
-// TestCentralized runs every centralized-enrollment run block as a sub-test.
+func (s *E2ESuite) stageProviderInMirror(binPath string) {
+	const mirrorRoot = "/opt/tf-mirror"
+	if _, err := os.Stat(mirrorRoot); err != nil {
+		return
+	}
+	target := runtime.GOOS + "_" + runtime.GOARCH
+	stagedDir := filepath.Join(
+		mirrorRoot, "registry.terraform.io", "evertrust", "horizon",
+		stagedProviderVersion, target,
+	)
+	s.Require().NoError(os.MkdirAll(stagedDir, 0o755), "create mirror staging dir")
+
+	dst := filepath.Join(stagedDir, "terraform-provider-horizon_v"+stagedProviderVersion)
+	src, err := os.Open(binPath)
+	s.Require().NoError(err, "open built provider binary")
+	defer src.Close()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	s.Require().NoError(err, "create staged provider binary")
+	defer out.Close()
+
+	_, err = io.Copy(out, src)
+	s.Require().NoError(err, "copy provider binary into mirror")
+}
+
 func (s *E2ESuite) TestCentralized() {
 	s.runTftestFile("certificate_centralized.tftest.hcl")
 }
 
-// TestDecentralized runs every decentralized-enrollment run block as a sub-test.
 func (s *E2ESuite) TestDecentralized() {
 	s.runTftestFile("certificate_decentralized.tftest.hcl")
 }
 
-// TestRenew exercises the renewal behavior: centralized certificates are
-// renewed in place via the WebRA renew endpoint when they enter their
-// renew_before window; decentralized ones go through destroy/create
-// (RequiresReplace) since a renew with the same CSR would reuse the key.
 func (s *E2ESuite) TestRenew() {
 	s.runTftestFile("certificate_renew.tftest.hcl")
 }
 
-// TestAcceptance runs the Terraform-plugin-testing acceptance suite under
-// tests/ against the Horizon instance spun up in SetupSuite. Those tests are
-// gated by TF_ACC and HORIZON_* env vars — they skip in any plain
-// `go test ./...` invocation. Running them here is what actually exercises
-// them end-to-end.
-//
-// Each TestAcc* function is surfaced as its own Go sub-test via t.Run so the
-// final report shows one line per acceptance test, with its own
-// outcome/output slice, instead of one opaque TestAcceptance entry.
+func (s *E2ESuite) TestNoDrift() {
+	s.runTftestFile("certificate_no_drift.tftest.hcl")
+}
+
+func (s *E2ESuite) TestMetadata() {
+	s.runTftestFile("certificate_metadata.tftest.hcl")
+}
+
 func (s *E2ESuite) TestAcceptance() {
 	t := s.T()
 	acceptanceDir := filepath.Join(s.repoRoot, "tests")
@@ -208,16 +241,10 @@ func (s *E2ESuite) TestAcceptance() {
 	}
 }
 
-// tfCLIConfigPath returns the TF_CLI_CONFIG_FILE written by SetupSuite that
-// pins Terraform to the locally built provider binary via dev_overrides.
 func (s *E2ESuite) tfCLIConfigPath() string {
 	return filepath.Join(s.binDir, ".terraformrc")
 }
 
-// runTftestFile invokes `terraform test -filter=<file>`, then parses the JUnit
-// report (for pass/fail status) and the captured stdout (for per-run output)
-// so that each Terraform run block surfaces as its own Go sub-test with only
-// its relevant log slice — not the whole file dumped under the parent test.
 func (s *E2ESuite) runTftestFile(file string) {
 	t := s.T()
 	base := strings.TrimSuffix(file, ".tftest.hcl")
@@ -274,13 +301,8 @@ func (s *E2ESuite) runTftestFile(file string) {
 	}
 }
 
-// runMarkerRE matches the `  run "NAME"...` line that terraform test -verbose
-// emits at the start of each run block.
 var runMarkerRE = regexp.MustCompile(`^\s*run\s+"([^"]+)"\.\.\.`)
 
-// splitTerraformOutputByRun splits the text produced by `terraform test
-// -verbose` into per-run chunks keyed by run name. Lines before the first run
-// marker are discarded; lines after the last run marker belong to it.
 func splitTerraformOutputByRun(raw string) map[string]string {
 	out := make(map[string]string)
 	var currentName string
@@ -326,9 +348,6 @@ type junitFailure struct {
 	Body    string `xml:",chardata"`
 }
 
-// parseJUnitCases accepts both a <testsuites>-rooted document and a bare
-// <testsuite> document (terraform test 1.14 writes the latter when a single
-// file is filtered).
 func parseJUnitCases(path string) ([]junitCase, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -349,7 +368,6 @@ func parseJUnitCases(path string) ([]junitCase, error) {
 	return suite.TestCases, nil
 }
 
-// goTestEvent is the schema of a single line emitted by `go test -json`.
 type goTestEvent struct {
 	Action  string  `json:"Action"`
 	Test    string  `json:"Test"`
@@ -357,7 +375,6 @@ type goTestEvent struct {
 	Elapsed float64 `json:"Elapsed"`
 }
 
-// goTestResult aggregates the per-test events of a single TestAcc function.
 type goTestResult struct {
 	Name    string
 	Outcome string // "pass", "fail", or "skip"
@@ -365,11 +382,6 @@ type goTestResult struct {
 	Output  string
 }
 
-// parseGoTestJSON consumes a `go test -json` stream and returns one
-// goTestResult per top-level test function. Sub-tests (TestAccX/step) have
-// their output folded into the parent's Output but do not surface as their
-// own entries. Output events that are not tied to a specific test (e.g. the
-// final "PASS" summary) are discarded.
 func parseGoTestJSON(r io.Reader) []goTestResult {
 	type buf struct {
 		out     strings.Builder
@@ -405,9 +417,6 @@ func parseGoTestJSON(r io.Reader) []goTestResult {
 		case "output":
 			b.out.WriteString(ev.Output)
 		case "pass", "fail", "skip":
-			// Only the top-level test's terminal event decides the outcome
-			// we report; sub-test outcomes are already reflected in the
-			// captured output.
 			if ev.Test == topLevel {
 				b.outcome = ev.Action
 				b.elapsed = ev.Elapsed

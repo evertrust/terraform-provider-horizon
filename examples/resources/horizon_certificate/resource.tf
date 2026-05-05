@@ -1,8 +1,9 @@
 # Centralized enrollment
 #
 # renew_before = 30 days: once a plan runs inside the renewal window, the
-# provider performs an in-place WebRA renew (Terraform sees an update, not a
-# destroy/create).
+# provider performs an in-place WebRA renew. Terraform sees an in-place
+# update; the resource address stays the same and computed fields
+# (serial, thumbprint, ...) are refreshed from the renewed certificate.
 resource "horizon_certificate" "example_centralized" {
   profile          = "EnrollmentProfile"
   key_type         = "rsa-2048"
@@ -55,9 +56,11 @@ resource "horizon_certificate" "example_centralized_write_only" {
 # Decentralized enrollment
 #
 # When `csr` is set, enrollment is decentralized: the private key stays on the
-# Terraform side. Renewal also happens there — inside the renew_before window,
-# the provider plans a destroy/create (RequiresReplace) rather than a WebRA
-# renew, since a renew with the same CSR would reuse the key.
+# Terraform side. Inside the renew_before window the provider issues an
+# in-place WebRA renew, forwarding the current CSR to Horizon. Reusing the
+# same CSR keeps the same key; if you want a fresh key on renewal,
+# regenerate the CSR-producing resource (e.g. taint tls_private_key) so a
+# new CSR reaches the renew call.
 resource "tls_private_key" "example_decentralized" {
   algorithm = "RSA"
   rsa_bits  = 2048

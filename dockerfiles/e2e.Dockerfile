@@ -20,4 +20,21 @@ RUN ARCH=$(dpkg --print-architecture) \
 RUN go install gotest.tools/gotestsum@latest \
  && go install github.com/evertrust/go-test-report@v1.0.1
 
+
+RUN mkdir -p /tmp/tfprefetch \
+ && printf '%s\n' \
+    'terraform {' \
+    '  required_providers {' \
+    '    tls = {' \
+    '      source  = "hashicorp/tls"' \
+    '      version = "~> 4.0"' \
+    '    }' \
+    '  }' \
+    '}' > /tmp/tfprefetch/main.tf \
+ && cd /tmp/tfprefetch \
+ && terraform init -input=false \
+ && terraform providers mirror /opt/tf-mirror \
+ && cd / \
+ && rm -rf /tmp/tfprefetch
+
 WORKDIR /workspace

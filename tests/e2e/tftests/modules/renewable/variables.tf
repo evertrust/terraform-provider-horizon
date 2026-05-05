@@ -23,3 +23,9 @@ variable "renew_before_days" {
   type        = number
   description = "How many days before not_after the provider should consider the cert in its renewal window. With the CA issuing certs for roughly one year, any value >= 400 makes any refresh after enroll fall inside the window."
 }
+
+variable "contact_email" {
+  type        = string
+  default     = null
+  description = "Optional contact_email assigned to the cert; used by the mixed renew+metadata-update tftest scenario."
+}

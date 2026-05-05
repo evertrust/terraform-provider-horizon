@@ -9,6 +9,36 @@ run = "go build -o bin/terraform-provider-horizon ."
 description = "Run unit tests"
 run = "go test ./..."
 
+[tasks.test-report]
+description = "Run unit tests and produce JUnit + HTML reports under tests/reports/"
+run = '''
+set -e
+mkdir -p tests/reports
+
+if ! command -v gotestsum >/dev/null 2>&1; then
+  echo "installing gotestsum"
+  go install gotest.tools/gotestsum@latest
+fi
+
+gotestsum --format=standard-verbose \
+  --junitfile=tests/reports/go-unit.xml \
+  --jsonfile=tests/reports/go-unit.json \
+  -- -timeout 5m ./internal/...
+RC=$?
+
+if command -v go-test-report >/dev/null 2>&1; then
+  go list -json ./internal/... > tests/reports/go-modules-unit.json
+  cat tests/reports/go-unit.json | go-test-report \
+    -l tests/reports/go-modules-unit.json \
+    -o tests/reports/go-unit.html \
+    --title "terraform-provider-horizon-unit" || true
+else
+  echo "go-test-report not installed — skipping HTML render (XML+JSON still produced)"
+fi
+
+exit $RC
+'''
+
 [tasks.testacc]
 description = "Run e2e acceptance tests against a live Horizon instance"
 depends = ["build"]
@@ -25,17 +55,10 @@ HORIZON_PROFILE  = "{{env.HORIZON_PROFILE}}"
 [env]
 E2E_DOCKER_IMAGE = "terraform-provider-horizon-e2e:latest"
 
-# Build the toolchain image used to run the e2e suite (Go + mongoimport + terraform).
 [tasks.docker-build-e2e]
 description = "Build the e2e Docker image"
 run = 'docker build -f dockerfiles/e2e.Dockerfile -t "$E2E_DOCKER_IMAGE" .'
 
-# Run the e2e suite inside a container. testcontainers-go spawns MongoDB + Horizon
-# + nginx as sibling containers via the mounted docker.sock; all four containers
-# share a dedicated network so they can resolve each other by name.
-#
-# Required env: LICENSE, hrz_version, mongo_version. Optional: preview (any
-# non-empty value to pull horizon from the local registry).
 [tasks.e2e]
 description = "Run e2e tests inside Docker"
 depends = ["docker-build-e2e"]
@@ -69,17 +92,16 @@ docker run --rm \
     --network "$NETWORK_NAME" \
     "$E2E_DOCKER_IMAGE" \
     bash -c 'set +e
-# Run unit tests (internal/provider/...) and the tagged e2e suite
-# (tests/e2e/...). The acceptance tests under tests/*.go are NOT in this
-# pattern on purpose — they need TF_ACC + a live Horizon and would skip here.
-# They are invoked from TestE2E/TestAcceptance as a subprocess with TF_ACC=1
-# and HORIZON_* pointed at the Horizon instance spun up by the e2e suite.
+
 gotestsum --format=standard-verbose \
     --junitfile=tests/reports/go-e2e.xml \
     --jsonfile=tests/reports/go-e2e.json \
     -- -tags=e2e -timeout 30m ./internal/... ./tests/e2e/...
 RC=$?
 go list -tags=e2e -json ./internal/... ./tests/e2e/... > tests/reports/go-modules.json
+
+go run ./tools/tfreport -dir tests/reports >> tests/reports/go-e2e.json
+
 cat tests/reports/go-e2e.json | go-test-report \
     -l tests/reports/go-modules.json \
     -o tests/reports/go-e2e.html \

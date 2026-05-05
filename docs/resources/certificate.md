@@ -16,8 +16,9 @@ Provides a Certificate resource. This resource allow you to manage the lifecycle
 # Centralized enrollment
 #
 # renew_before = 30 days: once a plan runs inside the renewal window, the
-# provider performs an in-place WebRA renew (Terraform sees an update, not a
-# destroy/create).
+# provider performs an in-place WebRA renew. Terraform sees an in-place
+# update; the resource address stays the same and computed fields
+# (serial, thumbprint, ...) are refreshed from the renewed certificate.
 resource "horizon_certificate" "example_centralized" {
   profile          = "EnrollmentProfile"
   key_type         = "rsa-2048"
@@ -70,9 +71,11 @@ resource "horizon_certificate" "example_centralized_write_only" {
 # Decentralized enrollment
 #
 # When `csr` is set, enrollment is decentralized: the private key stays on the
-# Terraform side. Renewal also happens there — inside the renew_before window,
-# the provider plans a destroy/create (RequiresReplace) rather than a WebRA
-# renew, since a renew with the same CSR would reuse the key.
+# Terraform side. Inside the renew_before window the provider issues an
+# in-place WebRA renew, forwarding the current CSR to Horizon. Reusing the
+# same CSR keeps the same key; if you want a fresh key on renewal,
+# regenerate the CSR-producing resource (e.g. taint tls_private_key) so a
+# new CSR reaches the renew call.
 resource "tls_private_key" "example_decentralized" {
   algorithm = "RSA"
   rsa_bits  = 2048
@@ -121,7 +124,7 @@ resource "horizon_certificate" "example_decentralized" {
 - `password_write_only` (Boolean) When true, the PKCS12 password is not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.
 - `pkcs12` (String, Sensitive) Base64-encoded PKCS12 file containing the certificate and the private key. Provided when using centralized enrollment.
 - `pkcs12_write_only` (Boolean) When true, the PKCS12 value returned/generated for centralized enrollment is not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.
-- `renew_before` (Number) How many days before expiration the certificate should be renewed. When a `terraform plan` or `terraform apply` runs inside that window, the provider triggers a real WebRA renew (in-place update) for centralized enrollments, and a destroy/create for decentralized enrollments (a renew with the same CSR would reuse the key, which is rarely desirable). Renewals rely on the Terraform workspace being run regularly; if it is not run, the certificate will expire.
+- `renew_before` (Number) How many days before expiration the certificate should be renewed. When a `terraform plan` or `terraform apply` runs inside that window, the provider triggers a real WebRA renew (in-place update) for both centralized and decentralized enrollments. For decentralized enrollments, the existing `csr` is forwarded to the renew API; if you want a brand-new key on each renewal, regenerate the CSR-producing resource (e.g. `tls_private_key`) so a fresh CSR reaches the renew call. Renewals rely on the Terraform workspace being run regularly; if it is not run, the certificate will expire.
 - `revoke_on_delete` (Boolean) Whether to revoke certificate when it is removed from the Terraform state or not.
 - `sans` (Attributes Set) Subject alternative names of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--sans))
 - `subject` (Attributes Set) Subject elements of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--subject))

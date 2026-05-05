@@ -67,10 +67,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ci-report-${{ matrix.scenario.horizon-version }}
-          path: tests/reports/go-e2e.html
+          path: tests/reports/
           if-no-files-found: error
           retention-days: 7
-      
+
+      - name: Publish JUnit summary
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          check_name: tests (${{ matrix.scenario.horizon-version }})
+          report_paths: |
+            tests/reports/go-e2e.xml
+            tests/reports/terraform-*.xml
+          fail_on_failure: false
+          require_tests: false
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4

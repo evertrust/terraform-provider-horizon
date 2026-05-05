@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/evertrust/horizon-go/v2/models"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -271,6 +272,142 @@ func containsErrorSummary(diags diag.Diagnostics, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestMetadataChanged(t *testing.T) {
+	labelObjType := types.ObjectType{AttrTypes: map[string]attr.Type{
+		"label": types.StringType,
+		"value": types.StringType,
+	}}
+	labelSet := func(pairs ...[2]string) types.Set {
+		elements := make([]attr.Value, 0, len(pairs))
+		for _, p := range pairs {
+			elements = append(elements, types.ObjectValueMust(labelObjType.AttrTypes, map[string]attr.Value{
+				"label": types.StringValue(p[0]),
+				"value": types.StringValue(p[1]),
+			}))
+		}
+		return types.SetValueMust(labelObjType, elements)
+	}
+
+	tests := []struct {
+		name  string
+		plan  certificateResourceModel
+		prior certificateResourceModel
+		want  bool
+	}{
+		{
+			name: "all metadata equal → unchanged",
+			plan: certificateResourceModel{
+				Owner:        types.StringValue("alice"),
+				Team:         types.StringValue("platform"),
+				ContactEmail: types.StringValue("alice@example.com"),
+				Labels:       labelSet([2]string{"env", "prod"}),
+			},
+			prior: certificateResourceModel{
+				Owner:        types.StringValue("alice"),
+				Team:         types.StringValue("platform"),
+				ContactEmail: types.StringValue("alice@example.com"),
+				Labels:       labelSet([2]string{"env", "prod"}),
+			},
+			want: false,
+		},
+		{
+			name: "owner changed",
+			plan: certificateResourceModel{
+				Owner:  types.StringValue("bob"),
+				Labels: labelSet(),
+			},
+			prior: certificateResourceModel{
+				Owner:  types.StringValue("alice"),
+				Labels: labelSet(),
+			},
+			want: true,
+		},
+		{
+			name: "team changed",
+			plan: certificateResourceModel{
+				Team:   types.StringValue("security"),
+				Labels: labelSet(),
+			},
+			prior: certificateResourceModel{
+				Team:   types.StringValue("platform"),
+				Labels: labelSet(),
+			},
+			want: true,
+		},
+		{
+			name: "contact_email changed",
+			plan: certificateResourceModel{
+				ContactEmail: types.StringValue("bob@example.com"),
+				Labels:       labelSet(),
+			},
+			prior: certificateResourceModel{
+				ContactEmail: types.StringValue("alice@example.com"),
+				Labels:       labelSet(),
+			},
+			want: true,
+		},
+		{
+			name: "owner cleared (set in state, null in plan)",
+			plan: certificateResourceModel{
+				Owner:  types.StringNull(),
+				Labels: labelSet(),
+			},
+			prior: certificateResourceModel{
+				Owner:  types.StringValue("alice"),
+				Labels: labelSet(),
+			},
+			want: true,
+		},
+		{
+			name: "labels added",
+			plan: certificateResourceModel{
+				Labels: labelSet([2]string{"env", "prod"}, [2]string{"tier", "1"}),
+			},
+			prior: certificateResourceModel{
+				Labels: labelSet([2]string{"env", "prod"}),
+			},
+			want: true,
+		},
+		{
+			name: "label value flipped",
+			plan: certificateResourceModel{
+				Labels: labelSet([2]string{"env", "staging"}),
+			},
+			prior: certificateResourceModel{
+				Labels: labelSet([2]string{"env", "prod"}),
+			},
+			want: true,
+		},
+		{
+			name: "label set order does not matter (Set semantics)",
+			plan: certificateResourceModel{
+				Labels: labelSet([2]string{"tier", "1"}, [2]string{"env", "prod"}),
+			},
+			prior: certificateResourceModel{
+				Labels: labelSet([2]string{"env", "prod"}, [2]string{"tier", "1"}),
+			},
+			want: false,
+		},
+		{
+			name: "all metadata null on both sides → unchanged",
+			plan: certificateResourceModel{
+				Labels: labelSet(),
+			},
+			prior: certificateResourceModel{
+				Labels: labelSet(),
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := metadataChanged(tt.plan, tt.prior); got != tt.want {
+				t.Fatalf("metadataChanged() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestValidateWriteOnlyFlags(t *testing.T) {

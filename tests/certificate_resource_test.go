@@ -129,6 +129,46 @@ func TestAccCertificate_DefaultBehavior(t *testing.T) {
 	})
 }
 
+func TestAccCertificate_ImportState(t *testing.T) {
+	cfg := testAccCentralizedConfig("import-state.tf-test.internal", false, false)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("horizon_certificate.test", "id"),
+					resource.TestCheckResourceAttrSet("horizon_certificate.test", "serial"),
+				),
+			},
+			{
+				ResourceName:      "horizon_certificate.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{
+					"pkcs12",
+					"password",
+					"pkcs12_write_only",
+					"password_write_only",
+					"profile",
+					"key_type",
+					"renew_before",
+					"revoke_on_delete",
+					"subject",
+					"sans",
+					"labels",
+					"owner",
+					"team",
+					"contact_email",
+					"wait_for_third_parties",
+				},
+			},
+		},
+	})
+}
+
 // TestAccCertificate_NoDriftAfterWriteOnly: after applying with both write-only flags enabled,
 // two consecutive plans must produce no changes (null secrets must not cause perpetual drift).
 func TestAccCertificate_NoDriftAfterWriteOnly(t *testing.T) {
