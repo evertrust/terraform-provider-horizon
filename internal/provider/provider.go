@@ -20,9 +20,6 @@ var _ provider.Provider = &HorizonProvider{}
 
 // HorizonProvider defines the provider implementation.
 type HorizonProvider struct {
-	// version is set to the provider version on release, "dev" when the
-	// provider is built and ran locally, and "test" when running acceptance
-	// testing.
 	version string
 }
 
@@ -102,9 +99,6 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 	cfg.Servers = horizon.ServerConfigurations{
 		horizon.ServerConfiguration{URL: endpoint.String()},
 	}
-	// The generated SDK overrides the request URL scheme with cfg.Scheme when
-	// it is non-empty (default "https"). Honor the endpoint's scheme instead
-	// so a http://... endpoint isn't silently upgraded to https://.
 	cfg.Scheme = endpoint.Scheme
 
 	if data.SkipTlsVerify.ValueBool() {
