@@ -3,6 +3,7 @@ package provider_test
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -129,6 +130,46 @@ func TestAccCertificate_DefaultBehavior(t *testing.T) {
 	})
 }
 
+func TestAccCertificate_ImportState(t *testing.T) {
+	cfg := testAccCentralizedConfig("import-state.tf-test.internal", false, false)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("horizon_certificate.test", "id"),
+					resource.TestCheckResourceAttrSet("horizon_certificate.test", "serial"),
+				),
+			},
+			{
+				ResourceName:      "horizon_certificate.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{
+					"pkcs12",
+					"password",
+					"pkcs12_write_only",
+					"password_write_only",
+					"profile",
+					"key_type",
+					"renew_before",
+					"revoke_on_delete",
+					"subject",
+					"sans",
+					"labels",
+					"owner",
+					"team",
+					"contact_email",
+					"wait_for_third_parties",
+				},
+			},
+		},
+	})
+}
+
 // TestAccCertificate_NoDriftAfterWriteOnly: after applying with both write-only flags enabled,
 // two consecutive plans must produce no changes (null secrets must not cause perpetual drift).
 func TestAccCertificate_NoDriftAfterWriteOnly(t *testing.T) {
@@ -157,6 +198,73 @@ func TestAccCertificate_NoDriftAfterWriteOnly(t *testing.T) {
 				Config:             cfg,
 				PlanOnly:           true,
 				ExpectNonEmptyPlan: false,
+			},
+		},
+	})
+}
+
+// testAccCentralizedConfigWithTimeouts builds a centralized-enrollment config
+// with an explicit timeouts.create value (Go duration string).
+func testAccCentralizedConfigWithTimeouts(cn, createTimeout string) string {
+	return testAccProviderConfig() + fmt.Sprintf(`
+resource "horizon_certificate" "test" {
+  profile  = %q
+  key_type = "rsa-2048"
+
+  subject = [
+    {
+      element = "cn.1"
+      type    = "CN"
+      value   = %q
+    }
+  ]
+
+  timeouts {
+    create = %q
+  }
+}
+`, testAccProfile(), cn, createTimeout)
+}
+
+// TestAccCertificate_Timeouts: configuring an explicit timeouts.create value
+// must succeed, persist into state verbatim, and produce no drift on re-plan.
+func TestAccCertificate_Timeouts(t *testing.T) {
+	cfg := testAccCentralizedConfigWithTimeouts("timeouts.tf-test.internal", "10m")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("horizon_certificate.test", "id"),
+					resource.TestCheckResourceAttr("horizon_certificate.test", "timeouts.create", "10m"),
+				),
+			},
+			// No perpetual drift introduced by the timeouts block.
+			{
+				Config:             cfg,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
+			},
+		},
+	})
+}
+
+// TestAccCertificate_TimeoutsInvalid: an unparseable Go duration must be
+// rejected at plan time by the framework's duration validator (no API call
+// reaches Horizon).
+func TestAccCertificate_TimeoutsInvalid(t *testing.T) {
+	cfg := testAccCentralizedConfigWithTimeouts("timeouts-invalid.tf-test.internal", "not-a-duration")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      cfg,
+				ExpectError: regexp.MustCompile(`(?i)duration`),
 			},
 		},
 	})

@@ -5,15 +5,16 @@ terraform.tfstate.backup
 terraform.tfstate
 terraform.tfstate.*
 
-./*.tf
+
 
 terraform.tfplan
 .DS_Store
 
-main.tf
-version.tf
+
 
 gha-creds-*.json
 
 .idea
-/envtest
+envtest/
+.terraform/
+reports/

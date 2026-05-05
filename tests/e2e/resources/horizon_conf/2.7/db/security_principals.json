@@ -1,0 +1,18 @@
+[{
+  "_id": {
+    "$oid": "64d3a6b72a0000340017594c"
+  },
+  "enabled": true,
+  "identifier": "administrator",
+  "permissions": [
+    {
+      "value": "configuration:*"
+    },
+    {
+      "value": "discovery:*"
+    },
+    {
+      "value": "lifecycle:*"
+    }
+  ]
+}]
