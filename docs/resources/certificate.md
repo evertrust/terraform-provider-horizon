@@ -124,7 +124,7 @@ resource "horizon_certificate" "example_decentralized" {
 - `password_write_only` (Boolean) When true, the PKCS12 password is not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.
 - `pkcs12` (String, Sensitive) Base64-encoded PKCS12 file containing the certificate and the private key. Provided when using centralized enrollment.
 - `pkcs12_write_only` (Boolean) When true, the PKCS12 value returned/generated for centralized enrollment is not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.
-- `renew_before` (Number) How many days before expiration the certificate should be renewed. When a `terraform plan` or `terraform apply` runs inside that window, the provider triggers a real WebRA renew (in-place update) for both centralized and decentralized enrollments. For decentralized enrollments, the existing `csr` is forwarded to the renew API; if you want a brand-new key on each renewal, regenerate the CSR-producing resource (e.g. `tls_private_key`) so a fresh CSR reaches the renew call. Renewals rely on the Terraform workspace being run regularly; if it is not run, the certificate will expire.
+- `renew_before` (Number) How many days before expiration the certificate should be renewed. The window is exclusive: renewal is triggered only once the remaining lifetime is strictly less than `renew_before` days (matching Horizon's renewal period semantics). When a `terraform plan` or `terraform apply` runs inside that window, the provider triggers a real WebRA renew (in-place update) for both centralized and decentralized enrollments. For decentralized enrollments, the existing `csr` is forwarded to the renew API; if you want a brand-new key on each renewal, regenerate the CSR-producing resource (e.g. `tls_private_key`) so a fresh CSR reaches the renew call. Renewals rely on the Terraform workspace being run regularly; if it is not run, the certificate will expire.
 - `revoke_on_delete` (Boolean) Whether to revoke certificate when it is removed from the Terraform state or not.
 - `sans` (Attributes Set) Subject alternative names of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--sans))
 - `subject` (Attributes Set) Subject elements of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--subject))
@@ -174,3 +174,10 @@ Required:
 - `type` (String) Subject element type. For example: `CN` for common name.
 - `value` (String) Subject element value. For example: `www.example.com` for common name.
 
+
+<a id="nestedblock--timeouts"></a>
+### Nested Schema for `timeouts`
+
+Optional:
+
+- `create` (String) A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as "30s" or "2h45m". Valid time units are "s" (seconds), "m" (minutes), "h" (hours).

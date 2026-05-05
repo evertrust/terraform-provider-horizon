@@ -227,7 +227,7 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Optional:    true,
 			},
 			"renew_before": schema.Int64Attribute{
-				Description: "How many days before expiration the certificate should be renewed. When a `terraform plan` or `terraform apply` runs inside that window, the provider triggers a real WebRA renew (in-place update) for both centralized and decentralized enrollments. For decentralized enrollments, the existing `csr` is forwarded to the renew API; if you want a brand-new key on each renewal, regenerate the CSR-producing resource (e.g. `tls_private_key`) so a fresh CSR reaches the renew call. Renewals rely on the Terraform workspace being run regularly; if it is not run, the certificate will expire.",
+				Description: "How many days before expiration the certificate should be renewed. When a `plan` or `apply` runs inside that window, the provider triggers a renewal on already existing enrollments. For decentralized enrollments, the existing `csr` is reused; if you want a brand-new key on each renewal, regenerate the CSR-producing resource (e.g. `tls_private_key`) so a fresh CSR reaches the renew call.",
 				Optional:    true,
 			},
 			"csr": schema.StringAttribute{
@@ -490,7 +490,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 			tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polled.ThirdPartyData))
 			// Check if the certificate has been added to all third parties
 			if !hasThirdParties(polled.ThirdPartyData, thirdParties) {
-				return retry.RetryableError(fmt.Errorf("failed to find all third parties after enrollment : %v", polled.ThirdPartyData))
+				return retry.RetryableError(fmt.Errorf("failed to find all third party data after enrollment : %v", polled.ThirdPartyData))
 			}
 			return nil
 		})
@@ -532,7 +532,7 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 	certResp, httpResp, err := r.client.CertificateAPI.CertificateGetId(ctx, data.Id.ValueString()).Execute()
 	if err != nil {
 		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
-			tflog.Info(ctx, fmt.Sprintf("Certificate %s not found remotely; removing from state", data.Id.ValueString()))
+			tflog.Info(ctx, fmt.Sprintf("Certificate %s not found in horizon; removing from state", data.Id.ValueString()))
 			resp.State.RemoveResource(ctx)
 			return
 		}
@@ -881,7 +881,7 @@ func isInRenewalWindow(notAfter types.Int64, renewBeforeDays types.Int64, now ti
 		return false
 	}
 	renewalDate := time.UnixMilli(notAfter.ValueInt64()).AddDate(0, 0, -int(renewBeforeDays.ValueInt64()))
-	return !now.Before(renewalDate)
+	return now.After(renewalDate)
 }
 
 func toCertificate(r *models.CertificateResponse) *models.Certificate {

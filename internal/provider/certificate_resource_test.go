@@ -41,7 +41,7 @@ func TestRenewalTriggerFor(t *testing.T) {
 func TestIsInRenewalWindow(t *testing.T) {
 	// Reference "now" anchors the window: renewalDate = notAfter - renewBeforeDays.
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
-	day := int64(24 * 60 * 60 * 1000) // ms per day
+	day := (24 * time.Hour).Milliseconds()
 
 	tests := []struct {
 		name            string
@@ -98,8 +98,14 @@ func TestIsInRenewalWindow(t *testing.T) {
 			want:            false,
 		},
 		{
-			name:            "expires in 30 days, renew_before 30 → exactly at boundary (inclusive)",
+			name:            "expires in 30 days, renew_before 30 → exactly at boundary (exclusive)",
 			notAfter:        types.Int64Value(now.UnixMilli() + 30*day),
+			renewBeforeDays: types.Int64Value(30),
+			want:            false,
+		},
+		{
+			name:            "1ms past boundary (29d 23h 59m 59.999s remaining), renew_before 30 → inside window",
+			notAfter:        types.Int64Value(now.UnixMilli() + 30*day - 1),
 			renewBeforeDays: types.Int64Value(30),
 			want:            true,
 		},
