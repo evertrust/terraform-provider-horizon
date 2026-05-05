@@ -174,10 +174,3 @@ Required:
 - `type` (String) Subject element type. For example: `CN` for common name.
 - `value` (String) Subject element value. For example: `www.example.com` for common name.
 
-
-<a id="nestedblock--timeouts"></a>
-### Nested Schema for `timeouts`
-
-Optional:
-
-- `create` (String) A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as "30s" or "2h45m". Valid time units are "s" (seconds), "m" (minutes), "h" (hours).

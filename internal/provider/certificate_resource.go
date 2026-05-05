@@ -436,9 +436,6 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		template.SetContactEmail(*contact)
 	}
 
-	// Build the submit payload. NewWebRAEnrollRequestOnSubmit takes a profile
-	// argument but the generated constructor does not assign it — set it
-	// explicitly.
 	submit := models.NewWebRAEnrollRequestOnSubmit(
 		data.Profile.ValueString(),
 		webRAModule,
@@ -534,10 +531,6 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 	tflog.Info(ctx, fmt.Sprintf("Getting certificate %s", data.Id.ValueString()))
 	certResp, httpResp, err := r.client.CertificateAPI.CertificateGetId(ctx, data.Id.ValueString()).Execute()
 	if err != nil {
-		// Cert deleted out of band: drop it from state so Terraform plans
-		// a fresh Create on the next run rather than surfacing a confusing
-		// "Failed to get certificate" error indefinitely. Any other error
-		// (auth, network, 5xx, ...) is reported as-is and leaves state intact.
 		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 			tflog.Info(ctx, fmt.Sprintf("Certificate %s not found remotely; removing from state", data.Id.ValueString()))
 			resp.State.RemoveResource(ctx)
@@ -595,9 +588,6 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 		tflog.Info(ctx, fmt.Sprintf("Renewing certificate %s via WebRA renew", certID))
 
 		renewTemplate := models.NewWebRARenewRequestTemplateWithDefaults()
-		// Forward the CSR for decentralized enrollments. The user controls
-		// whether the CSR is regenerated between applies (via their
-		// CSR-producing resource); we just pass through whatever they hand us.
 		if !data.Csr.IsNull() && !data.Csr.IsUnknown() && data.Csr.ValueString() != "" {
 			renewTemplate.SetCsr(data.Csr.ValueString())
 		}
@@ -650,11 +640,6 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 		}
 	}
 
-	// Skip the metadata-update round-trip when the apply was driven solely by
-	// renewal: state already reflects the fresh certificate (post-renew
-	// Certificate.Get above) and re-asserting unchanged metadata only adds
-	// load and audit noise. When metadata genuinely changed — with or without
-	// a renewal — fall through to WebRAUpdate.
 	if renewRequested && !metadataChanged(data, prior) {
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
@@ -754,7 +739,6 @@ func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.Va
 	}
 
 	if !data.Csr.IsNull() {
-		// We assume we're in a decentralized enrollment mode, so we'll warn about useless parameters.
 		if !data.KeyType.IsNull() {
 			resp.Diagnostics.AddAttributeWarning(path.Root("key_type"), "key_type is ignored when csr is provided.", "")
 		}
@@ -795,10 +779,6 @@ func (r *CertificateResource) ModifyPlan(ctx context.Context, req resource.Modif
 
 	tflog.Info(ctx, fmt.Sprintf("Certificate %s is in its renewal window (expires at %s).", state.Id.ValueString(), time.UnixMilli(state.NotAfter.ValueInt64())))
 
-	// Renewal is always in-place via WebRA renew, including for decentralized
-	// enrollments. The user's CSR is forwarded as-is to the renew API; if
-	// they want a fresh key on renewal they must rotate the CSR-producing
-	// resource themselves (Terraform's regular plan-driven mechanism).
 	plan.RenewalTrigger = types.StringUnknown()
 	plan.Id = types.StringUnknown()
 	plan.Serial = types.StringUnknown()
@@ -811,9 +791,6 @@ func (r *CertificateResource) ModifyPlan(ctx context.Context, req resource.Modif
 	plan.NotBefore = types.Int64Unknown()
 	plan.NotAfter = types.Int64Unknown()
 
-	// PKCS12 / password only exist for centralized enrollments — leave the
-	// state values as-is (null) for decentralized so we don't introduce a
-	// spurious diff.
 	if plan.Csr.IsNull() {
 		if !plan.Pkcs12WriteOnly.ValueBool() {
 			plan.Pkcs12 = types.StringUnknown()
@@ -852,10 +829,6 @@ func renewalTriggerFor(notAfter int64) string {
 	return fmt.Sprintf("renew-%d", notAfter)
 }
 
-// extractRenewedCertificate validates the shape of a renew response and
-// returns the inner WebRARenewRequestOnSubmitResponse. Diagnostics carry a
-// clear error for each failure mode; the caller must check diags before
-// dereferencing the returned pointer.
 func extractRenewedCertificate(resp *models.RequestSubmit201Response) (*models.WebRARenewRequestOnSubmitResponse, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	if resp == nil {
@@ -874,9 +847,6 @@ func extractRenewedCertificate(resp *models.RequestSubmit201Response) (*models.W
 	return renewed, diags
 }
 
-// extractUpdatedCertificate validates the shape of a metadata update response
-// and returns the Certificate payload. Same failure-mode contract as
-// extractRenewedCertificate.
 func extractUpdatedCertificate(resp *models.RequestSubmit201Response) (*models.Certificate, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	if resp == nil {
@@ -896,9 +866,6 @@ func extractUpdatedCertificate(resp *models.RequestSubmit201Response) (*models.C
 	return cert, diags
 }
 
-// metadataChanged reports whether any user-managed metadata field differs
-// between plan and prior state. Used in Update to skip the WebRA update
-// round-trip when an apply is driven solely by renewal.
 func metadataChanged(plan, prior certificateResourceModel) bool {
 	return !plan.Owner.Equal(prior.Owner) ||
 		!plan.Team.Equal(prior.Team) ||
@@ -917,8 +884,6 @@ func isInRenewalWindow(notAfter types.Int64, renewBeforeDays types.Int64, now ti
 	return !now.Before(renewalDate)
 }
 
-// toCertificate converts a CertificateResponse into a Certificate so downstream
-// helpers can keep working with a single shape.
 func toCertificate(r *models.CertificateResponse) *models.Certificate {
 	return &models.Certificate{
 		Id:                    r.Id,
