@@ -42,9 +42,9 @@ jobs:
           method: ${{ vars.VAULT_AUTH_METHOD }}
           path: ${{ vars.VAULT_AUTH_PATH }}
           secrets: |
-            ci/data/repositories/evertrust/terraform-provider-horizon/quay quay_user | QUAY_USERNAME;
-            ci/data/repositories/evertrust/terraform-provider-horizon/quay quay_password | QUAY_PASSWORD;
-            ci/data/repositories/evertrust/terraform-provider-horizon/license license | HRZ_LICENSE;
+            ci/repositories/evertrust/terraform-provider-horizon/quay quay_user | QUAY_USERNAME;
+            ci/repositories/evertrust/terraform-provider-horizon/quay quay_password | QUAY_PASSWORD;
+            ci/repositories/evertrust/terraform-provider-horizon/license license | HRZ_LICENSE;
 
       - name: Checkout code
         uses: actions/checkout@v4
