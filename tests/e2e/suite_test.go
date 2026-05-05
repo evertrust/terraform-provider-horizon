@@ -180,6 +180,10 @@ func (s *E2ESuite) TestMetadata() {
 	s.runTftestFile("certificate_metadata.tftest.hcl")
 }
 
+func (s *E2ESuite) TestTrustChain() {
+	s.runTftestFile("certificate_trust_chain.tftest.hcl")
+}
+
 func (s *E2ESuite) TestAcceptance() {
 	t := s.T()
 	acceptanceDir := filepath.Join(s.repoRoot, "tests")
