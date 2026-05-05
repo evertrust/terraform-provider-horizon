@@ -106,5 +106,7 @@ cat tests/reports/go-e2e.json | go-test-report \
     -l tests/reports/go-modules.json \
     -o tests/reports/go-e2e.html \
     --title "terraform-provider-horizon-e2e" || true
+
+chmod -R a+rw tests/reports
 exit $RC'
 '''
