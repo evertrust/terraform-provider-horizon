@@ -65,7 +65,7 @@ func (d *CertificateTrustChainDataSource) Schema(ctx context.Context, req dataso
 			"order": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "Order of the returned chain. One of `leaf_to_root`, `root_to_leaf`, `issuer_leaf_to_root`, `issuer_root_to_leaf`. Defaults to `leaf_to_root`.",
+				MarkdownDescription: "Order of the returned chain. One of `leaf_to_root`, `root_to_leaf`, `issuer_leaf_to_root`, `issuer_root_to_leaf`. Defaults to `root_to_leaf`.",
 			},
 			"chain": schema.ListAttribute{
 				Computed:    true,
@@ -140,7 +140,7 @@ func (d *CertificateTrustChainDataSource) Read(ctx context.Context, req datasour
 		return
 	}
 
-	order := trustChainOrderLeafToRoot
+	order := trustChainOrderRootToLeaf
 	if !data.Order.IsNull() && !data.Order.IsUnknown() && data.Order.ValueString() != "" {
 		order = data.Order.ValueString()
 	}

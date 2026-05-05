@@ -55,7 +55,7 @@ output "file_chain" {
 
 ### Optional
 
-- `order` (String) Order of the returned chain. One of `leaf_to_root`, `root_to_leaf`, `issuer_leaf_to_root`, `issuer_root_to_leaf`. Defaults to `leaf_to_root`.
+- `order` (String) Order of the returned chain. One of `leaf_to_root`, `root_to_leaf`, `issuer_leaf_to_root`, `issuer_root_to_leaf`. Defaults to `root_to_leaf`.
 
 ### Read-Only
 

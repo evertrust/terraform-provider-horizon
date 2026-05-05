@@ -26,14 +26,14 @@ run "trust_chain_default_and_orders" {
     cn       = "trust-chain.tf-test.internal"
   }
 
-  # --- default order is leaf_to_root ---
+  # --- default order is root_to_leaf ---
   assert {
     condition     = data.horizon_certificate_trust_chain.default_order.id != ""
     error_message = "default_order id must be set"
   }
   assert {
-    condition     = data.horizon_certificate_trust_chain.default_order.order == "leaf_to_root"
-    error_message = "default order must be leaf_to_root"
+    condition     = data.horizon_certificate_trust_chain.default_order.order == "root_to_leaf"
+    error_message = "default order must be root_to_leaf"
   }
   assert {
     condition     = length(data.horizon_certificate_trust_chain.default_order.chain) >= 2
@@ -59,13 +59,6 @@ run "trust_chain_default_and_orders" {
     )
     error_message = "leaf_to_root chain[0] must be the submitted leaf certificate"
   }
-  assert {
-    condition = (
-      data.horizon_certificate_trust_chain.leaf_to_root.id ==
-      data.horizon_certificate_trust_chain.default_order.id
-    )
-    error_message = "leaf_to_root id must equal the default order id (same input + order)"
-  }
 
   # --- root_to_leaf: last PEM is the leaf, ordering is reversed ---
   assert {
@@ -89,6 +82,13 @@ run "trust_chain_default_and_orders" {
       data.horizon_certificate_trust_chain.leaf_to_root.id
     )
     error_message = "different orders must produce different ids"
+  }
+  assert {
+    condition = (
+      data.horizon_certificate_trust_chain.root_to_leaf.id ==
+      data.horizon_certificate_trust_chain.default_order.id
+    )
+    error_message = "root_to_leaf id must equal the default order id (same input + order)"
   }
 
   # --- issuer_* orders are accepted and return at least one certificate ---
