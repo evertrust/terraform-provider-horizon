@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -9,9 +11,9 @@ import (
 // Compile-time assertions that the data source satisfies the framework
 // interfaces it advertises (Configure + ValidateConfig).
 var (
-	_ datasource.DataSource                     = &CertificateTrustChainDataSource{}
-	_ datasource.DataSourceWithConfigure        = &CertificateTrustChainDataSource{}
-	_ datasource.DataSourceWithValidateConfig   = &CertificateTrustChainDataSource{}
+	_ datasource.DataSource                   = &CertificateTrustChainDataSource{}
+	_ datasource.DataSourceWithConfigure      = &CertificateTrustChainDataSource{}
+	_ datasource.DataSourceWithValidateConfig = &CertificateTrustChainDataSource{}
 )
 
 func TestOrderToHorizon(t *testing.T) {
@@ -37,47 +39,56 @@ func TestOrderToHorizon(t *testing.T) {
 }
 
 func TestTrustChainID(t *testing.T) {
-	const pemA = "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n"
-	const pemB = "-----BEGIN CERTIFICATE-----\nBBB\n-----END CERTIFICATE-----\n"
+	const leaf = "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----"
+	const root = "-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----"
+	leafToRoot := leaf + "\n" + root
+	rootToLeaf := root + "\n" + leaf
 
-	t.Run("deterministic for the same inputs", func(t *testing.T) {
-		first := trustChainID(pemA, "leaf_to_root")
-		second := trustChainID(pemA, "leaf_to_root")
+	t.Run("matches sha256(chain_pem) of the chain", func(t *testing.T) {
+		want := sha256.Sum256([]byte(leafToRoot))
+		got := trustChainID(leafToRoot)
+		if got != hex.EncodeToString(want[:]) {
+			t.Fatalf("trustChainID = %s, want %s", got, hex.EncodeToString(want[:]))
+		}
+	})
+
+	t.Run("deterministic for the same chain", func(t *testing.T) {
+		first := trustChainID(leafToRoot)
+		second := trustChainID(leafToRoot)
 		if first != second {
 			t.Fatalf("trustChainID is not deterministic: %q vs %q", first, second)
 		}
 	})
 
-	t.Run("changes when the certificate changes", func(t *testing.T) {
-		idA := trustChainID(pemA, "leaf_to_root")
-		idB := trustChainID(pemB, "leaf_to_root")
-		if idA == idB {
-			t.Fatalf("trustChainID must change with the certificate content (got %q for both)", idA)
-		}
-	})
-
-	t.Run("changes when the order changes", func(t *testing.T) {
-		idLTR := trustChainID(pemA, "leaf_to_root")
-		idRTL := trustChainID(pemA, "root_to_leaf")
+	t.Run("changes when chain order changes", func(t *testing.T) {
+		// Same certificates, reversed order: the id MUST differ so callers can
+		// distinguish leaf_to_root and root_to_leaf reads on the same input.
+		idLTR := trustChainID(leafToRoot)
+		idRTL := trustChainID(rootToLeaf)
 		if idLTR == idRTL {
-			t.Fatalf("trustChainID must change with the order (got %q for both)", idLTR)
+			t.Fatalf("trustChainID must change with chain order (got %q for both)", idLTR)
 		}
 	})
 
-	t.Run("not vulnerable to pem/order concatenation collisions", func(t *testing.T) {
-		// Without the separator byte, "ltr" + "AAA" == "l" + "trAAA" would
-		// collide. Use the same total content split differently to make sure
-		// the separator is taken into account.
-		idA := trustChainID("trAAA", "l")
-		idB := trustChainID("AAA", "ltr")
+	t.Run("changes when the chain content changes", func(t *testing.T) {
+		other := "-----BEGIN CERTIFICATE-----\nOTHER\n-----END CERTIFICATE-----"
+		idA := trustChainID(leafToRoot)
+		idB := trustChainID(leaf + "\n" + other)
 		if idA == idB {
-			t.Fatalf("trustChainID must use a separator between order and pem (got %q for both)", idA)
+			t.Fatalf("trustChainID must change with chain content (got %q for both)", idA)
 		}
 	})
 
 	t.Run("sha256-hex length", func(t *testing.T) {
-		if got := len(trustChainID(pemA, "leaf_to_root")); got != 64 {
+		if got := len(trustChainID(leafToRoot)); got != 64 {
 			t.Fatalf("trustChainID must be a 64-char sha256 hex string, got %d chars", got)
+		}
+	})
+
+	t.Run("empty chain still produces a stable digest", func(t *testing.T) {
+		want := sha256.Sum256(nil)
+		if got := trustChainID(""); got != hex.EncodeToString(want[:]) {
+			t.Fatalf("trustChainID(\"\") = %s, want %s", got, hex.EncodeToString(want[:]))
 		}
 	})
 }

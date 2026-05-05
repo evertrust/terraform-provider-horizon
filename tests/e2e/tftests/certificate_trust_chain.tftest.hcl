@@ -76,19 +76,24 @@ run "trust_chain_default_and_orders" {
     )
     error_message = "leaf_to_root and root_to_leaf must contain the same number of certificates"
   }
+  # The id is the SHA-256 of the concatenated chain in the requested order.
+  # Same input cert + different orders ⇒ different chain serializations ⇒
+  # different ids.
   assert {
     condition = (
       data.horizon_certificate_trust_chain.root_to_leaf.id !=
       data.horizon_certificate_trust_chain.leaf_to_root.id
     )
-    error_message = "different orders must produce different ids"
+    error_message = "leaf_to_root and root_to_leaf must produce different ids (chain order is reversed)"
   }
+  # Default order falls back to root_to_leaf, so its id must match the
+  # explicit root_to_leaf one.
   assert {
     condition = (
-      data.horizon_certificate_trust_chain.root_to_leaf.id ==
-      data.horizon_certificate_trust_chain.default_order.id
+      data.horizon_certificate_trust_chain.default_order.id ==
+      data.horizon_certificate_trust_chain.root_to_leaf.id
     )
-    error_message = "root_to_leaf id must equal the default order id (same input + order)"
+    error_message = "default_order id must equal the root_to_leaf id (same chain)"
   }
 
   # --- issuer_* orders are accepted and return at least one certificate ---

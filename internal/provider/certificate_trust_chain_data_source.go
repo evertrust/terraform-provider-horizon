@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	trustChainOrderLeafToRoot        = "leaf_to_root"
-	trustChainOrderRootToLeaf        = "root_to_leaf"
-	trustChainOrderIssuerLeafToRoot  = "issuer_leaf_to_root"
-	trustChainOrderIssuerRootToLeaf  = "issuer_root_to_leaf"
+	trustChainOrderLeafToRoot       = "leaf_to_root"
+	trustChainOrderRootToLeaf       = "root_to_leaf"
+	trustChainOrderIssuerLeafToRoot = "issuer_leaf_to_root"
+	trustChainOrderIssuerRootToLeaf = "issuer_root_to_leaf"
 )
 
 // orderToHorizon maps the provider-side order values to the Horizon API values.
@@ -56,7 +56,7 @@ func (d *CertificateTrustChainDataSource) Schema(ctx context.Context, req dataso
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Stable identifier derived from the input certificate content and the requested order.",
+				Description: "SHA-256 (hex) of the concatenated PEM chain returned by Horizon, in the requested order. Two reads with the same input certificate but different `order` values produce different ids.",
 			},
 			"certificate_pem": schema.StringAttribute{
 				Required:    true,
@@ -203,21 +203,18 @@ func (d *CertificateTrustChainDataSource) Read(ctx context.Context, req datasour
 		return
 	}
 
+	chainPem := strings.Join(chainPems, "\n")
+
 	data.Chain = chainList
-	data.ChainPem = types.StringValue(strings.Join(chainPems, "\n"))
+	data.ChainPem = types.StringValue(chainPem)
 	data.Length = types.Int64Value(int64(len(chainPems)))
 	data.Order = types.StringValue(order)
-	data.Id = types.StringValue(trustChainID(pem, order))
+	data.Id = types.StringValue(trustChainID(chainPem))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-// trustChainID returns a deterministic identifier derived from the certificate
-// content and the requested order, so Terraform sees a stable id across reads.
-func trustChainID(pem, order string) string {
-	h := sha256.New()
-	h.Write([]byte(order))
-	h.Write([]byte{0})
-	h.Write([]byte(pem))
-	return hex.EncodeToString(h.Sum(nil))
+func trustChainID(chainPem string) string {
+	sum := sha256.Sum256([]byte(chainPem))
+	return hex.EncodeToString(sum[:])
 }
