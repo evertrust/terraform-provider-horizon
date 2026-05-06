@@ -68,7 +68,7 @@ set -e
 [ -n "${MONGO_VERSION-}" ]|| { echo "ERROR: mongo_version is required"; exit 1; }
 
 command -v docker >/dev/null      || { echo "ERROR: docker is required (testcontainers spins up Horizon/Mongo/Nginx)"; exit 1; }
-command -v mongoimport >/dev/null || { echo "ERROR: mongoimport is required"; exit 1; }
+command -v mongoimport >/dev/null || { echo "ERROR: mongoimport is required (install: 'apt-get install -y mongodb-org-tools' on Debian, 'brew install mongodb-database-tools' on macOS)"; exit 1; }
 
 mkdir -p tests/reports
 '''

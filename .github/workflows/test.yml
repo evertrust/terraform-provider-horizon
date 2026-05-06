@@ -54,6 +54,11 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v4
 
+      - name: Install mongodb-org-tools
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y mongodb-org-tools
+
       - name: Run tests Linux
         env:
           LICENSE: ${{ env.HRZ_LICENSE }}
