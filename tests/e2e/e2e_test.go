@@ -22,19 +22,15 @@ import (
 
 type MongoContainer struct {
 	testcontainers.Container
-	ConnectionString string
 }
 
 type HorizonContainer struct {
 	testcontainers.Container
-	ConnectionUrl string
-	Version       string
 }
 
 type NginxContainer struct {
 	testcontainers.Container
-	HttpUrl  string
-	HttpsUrl string
+	HttpUrl string
 }
 
 type HorizonTestInstances struct {
@@ -59,7 +55,7 @@ func DownHorizonInstance(
 		return err
 	}
 
-	logPath := filepath.Join(cwd, "..", "reports", "horizon.log")
+	logPath := filepath.Join(cwd, "..", "reports", fmt.Sprintf("horizon-%d.log", os.Getpid()))
 
 	err = os.WriteFile(logPath, fileBytes, 0666)
 	if err != nil {
@@ -122,8 +118,7 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 	internalCS := fmt.Sprintf("mongodb:/%s:27017/horizon", mongoHost.Name)
 	externalCS := fmt.Sprintf("%s/horizon", externalEndpoint)
 	mongo := MongoContainer{
-		Container:        mongoContainer,
-		ConnectionString: internalCS,
+		Container: mongoContainer,
 	}
 
 	cwd, err := os.Getwd()
@@ -274,24 +269,13 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 		return nil, err
 	}
 
-	horizonInspect, err := horizonContainer.Inspect(ctx)
-	if err != nil {
-		return nil, err
-	}
 	horizonC := HorizonContainer{
-		Container:     horizonContainer,
-		Version:       horizonVersion,
-		ConnectionUrl: fmt.Sprintf("%s:9000", horizonInspect.Name),
+		Container: horizonContainer,
 	}
 
 	http := "http://nginx-horizon"
-	https := "https://nginx-horizon"
 	if os.Getenv("DOCKER_NETWORK") == "" {
 		http, err = nginxContainer.PortEndpoint(ctx, "80", "http")
-		if err != nil {
-			return nil, err
-		}
-		https, err = nginxContainer.PortEndpoint(ctx, "443", "https")
 		if err != nil {
 			return nil, err
 		}
@@ -299,7 +283,6 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 	nginx := NginxContainer{
 		Container: nginxContainer,
 		HttpUrl:   http,
-		HttpsUrl:  https,
 	}
 
 	return &HorizonTestInstances{
