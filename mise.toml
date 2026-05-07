@@ -4,6 +4,15 @@ terraform = "1.15.1"
 gotestsum = "1.13.0"
 "go:github.com/evertrust/go-test-report" = "v1.0.1"
 
+[tools."http:mongodb-database-tools"]
+version = "100.10.0"
+
+[tools."http:mongodb-database-tools".platforms]
+linux-x64    = { url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.10.0.tgz", checksum = "sha256:e92ef9448aeb347216f253ca3cd34ef5490102d4c6269353c799f51b69206e4a" }
+linux-arm64  = { url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-arm64-100.10.0.tgz",  checksum = "sha256:0beff6ec381d497ae0543e050df21ebd76fda9f04e2805e4abb6511381006541" }
+macos-arm64  = { url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-macos-arm64-100.10.0.zip",       checksum = "sha256:946177e469ef8744bd36aa38809926beb3c97a56e4c1d637dc052a1f18f57515" }
+macos-x64    = { url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-macos-x86_64-100.10.0.zip",      checksum = "sha256:089dabbda45cd0dcc169395c8e4d2fdcc8b2ccf55d0bc450037455876c4b632b" }
+
 [env]
 LICENSE = "{{ env.LICENSE | default(value='') }}"
 MONGO_VERSION = "{{ env.mongo_version | default(value='') }}"

@@ -54,19 +54,6 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v4
 
-      - name: Install mongodb-org-tools
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gnupg curl ca-certificates
-          curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc \
-            | sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
-          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" \
-            | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mongodb-org-tools
-          sudo rm -rf /var/lib/apt/lists/*
-
       - name: Run tests Linux
         env:
           LICENSE: ${{ env.HRZ_LICENSE }}
