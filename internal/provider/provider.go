@@ -105,10 +105,7 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 	cfg.Scheme = endpoint.Scheme
 
 	if data.SkipTlsVerify.ValueBool() {
-		resp.Diagnostics.AddError(
-			"Insecure TLS configuration is not allowed",
-			"`skip_tls_verify` disables certificate and hostname verification and is not supported. Configure `ca_bundle_pem` (or system trust) so TLS verification can remain enabled.",
-		)
+		cfg.GetTlsConfig().InsecureSkipVerify = true
 		return
 	}
 
