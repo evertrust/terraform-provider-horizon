@@ -48,9 +48,14 @@ func (s *E2ESuite) SetupSuite() {
 	cwd, err := os.Getwd()
 	s.Require().NoError(err)
 	s.repoRoot = filepath.Clean(filepath.Join(cwd, "..", ".."))
-	s.tftestsDir = filepath.Join(cwd, "tftests")
 	s.reportsDir = filepath.Join(s.repoRoot, "tests", "reports")
 	s.Require().NoError(os.MkdirAll(s.reportsDir, 0o755))
+
+	// Copy tftests/ into a per-suite temp dir so parallel `mise run e2e`
+	// invocations don't race on the same .terraform/ and lock file.
+	srcTftests := filepath.Join(cwd, "tftests")
+	s.tftestsDir = filepath.Join(t.TempDir(), "tftests")
+	s.Require().NoError(os.CopyFS(s.tftestsDir, os.DirFS(srcTftests)))
 
 	s.binDir = t.TempDir()
 	binPath := filepath.Join(s.binDir, "terraform-provider-horizon")
@@ -61,6 +66,8 @@ func (s *E2ESuite) SetupSuite() {
 	out, err := build.CombinedOutput()
 	s.Require().NoErrorf(err, "go build: %s", out)
 
+	localMirrorDir := filepath.Join(s.binDir, "tf-mirror")
+	s.stageProviderInDir(binPath, localMirrorDir)
 	s.stageProviderInMirror(binPath)
 
 	cliConfigPath := filepath.Join(s.binDir, ".terraformrc")
@@ -69,17 +76,21 @@ func (s *E2ESuite) SetupSuite() {
     "registry.terraform.io/evertrust/horizon" = "` + s.binDir + `"
   }
   filesystem_mirror {
-    path    = "/opt/tf-mirror"
-    include = [
-      "registry.terraform.io/hashicorp/*",
-      "registry.terraform.io/evertrust/horizon",
-    ]
+    path    = "` + localMirrorDir + `"
+    include = ["registry.terraform.io/evertrust/horizon"]
   }
-  direct {
-    exclude = [
-      "registry.terraform.io/hashicorp/*",
-      "registry.terraform.io/evertrust/horizon",
-    ]
+`
+	excluded := []string{`"registry.terraform.io/evertrust/horizon"`}
+	if _, err := os.Stat("/opt/tf-mirror"); err == nil {
+		cliConfig += `  filesystem_mirror {
+    path    = "/opt/tf-mirror"
+    include = ["registry.terraform.io/hashicorp/*"]
+  }
+`
+		excluded = append(excluded, `"registry.terraform.io/hashicorp/*"`)
+	}
+	cliConfig += `  direct {
+    exclude = [` + strings.Join(excluded, ", ") + `]
   }
 }
 `
@@ -98,10 +109,6 @@ func (s *E2ESuite) SetupSuite() {
 		"TF_VAR_centralized_profile="+CentralizedProfile,
 		"TF_VAR_decentralized_profile="+DecentralizedProfile,
 	)
-
-	if err := os.Remove(filepath.Join(s.tftestsDir, ".terraform.lock.hcl")); err != nil && !os.IsNotExist(err) {
-		s.Require().NoError(err, "remove stale lock file")
-	}
 
 	var initOut bytes.Buffer
 	initSinks := io.MultiWriter(&testWriter{t: t}, &initOut)
@@ -140,6 +147,10 @@ func (s *E2ESuite) stageProviderInMirror(binPath string) {
 	if _, err := os.Stat(mirrorRoot); err != nil {
 		return
 	}
+	s.stageProviderInDir(binPath, mirrorRoot)
+}
+
+func (s *E2ESuite) stageProviderInDir(binPath, mirrorRoot string) {
 	target := runtime.GOOS + "_" + runtime.GOARCH
 	stagedDir := filepath.Join(
 		mirrorRoot, "registry.terraform.io", "evertrust", "horizon",
@@ -178,6 +189,10 @@ func (s *E2ESuite) TestNoDrift() {
 
 func (s *E2ESuite) TestMetadata() {
 	s.runTftestFile("certificate_metadata.tftest.hcl")
+}
+
+func (s *E2ESuite) TestTrustChain() {
+	s.runTftestFile("certificate_trust_chain.tftest.hcl")
 }
 
 func (s *E2ESuite) TestAcceptance() {

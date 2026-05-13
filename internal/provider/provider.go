@@ -105,11 +105,7 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 	cfg.Scheme = endpoint.Scheme
 
 	if data.SkipTlsVerify.ValueBool() {
-		resp.Diagnostics.AddError(
-			"Insecure TLS configuration is not allowed",
-			"`skip_tls_verify` disables certificate and hostname verification and is not supported. Configure `ca_bundle_pem` (or system trust) so TLS verification can remain enabled.",
-		)
-		return
+		cfg.GetTlsConfig().InsecureSkipVerify = true
 	}
 
 	if !data.Proxy.IsNull() {
@@ -164,7 +160,7 @@ func (p *HorizonProvider) Resources(ctx context.Context) []func() resource.Resou
 
 func (p *HorizonProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		//NewExampleDataSource,
+		NewCertificateTrustChainDataSource,
 	}
 }
 

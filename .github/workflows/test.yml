@@ -87,6 +87,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ci-horizon-logs-${{ matrix.scenario.horizon-version }}
-          path: tests/reports/horizon.log
+          path: tests/reports/horizon-*.log
           if-no-files-found: ignore
           retention-days: 7
