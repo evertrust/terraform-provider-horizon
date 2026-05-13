@@ -106,7 +106,6 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	if data.SkipTlsVerify.ValueBool() {
 		cfg.GetTlsConfig().InsecureSkipVerify = true
-		return
 	}
 
 	if !data.Proxy.IsNull() {
