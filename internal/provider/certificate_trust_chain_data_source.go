@@ -169,7 +169,8 @@ func (d *CertificateTrustChainDataSource) Read(ctx context.Context, req datasour
 		return
 	}
 
-	chainResp, _, err := d.client.Rfc5280API.Rfc5280TcPem(ctx, pem).
+	chainResp, _, err := d.client.Rfc5280API.Rfc5280TcFile(ctx).
+		X509([]byte(pem)).
 		Order(horizonOrder).
 		Execute()
 	if err != nil {

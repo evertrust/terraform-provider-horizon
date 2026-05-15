@@ -64,6 +64,8 @@ github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
 github.com/evertrust/horizon-go/v2 v2.9.2 h1:htwEGaMtg0Ggg/aFYzREEmkhuJqCULc6as1JLkqJf70=
 github.com/evertrust/horizon-go/v2 v2.9.2/go.mod h1:oA1Dc8K2dfOzUKF96n9aQpeM/qjapP8n/jhkTsrnr3s=
+github.com/evertrust/horizon-go/v2 v2.9.3-0.20260515151428-991e250b6c2a h1:OKr5AcB1i2VvFHFf6/le5bgLahPJ7K/4uJnBhWUfpEU=
+github.com/evertrust/horizon-go/v2 v2.9.3-0.20260515151428-991e250b6c2a/go.mod h1:oA1Dc8K2dfOzUKF96n9aQpeM/qjapP8n/jhkTsrnr3s=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
 github.com/fatih/color v1.13.0/go.mod h1:kLAiJbzzSOZDVNGyDpeOxJ47H46qBXwg5ILebYFFOfk=
 github.com/fatih/color v1.18.0 h1:S8gINlzdQ840/4pfAwic/ZE0djQEH3wM94VfqLTZcOM=
