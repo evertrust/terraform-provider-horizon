@@ -3,7 +3,7 @@ module github.com/evertrust/terraform-provider-horizon
 go 1.25.0
 
 require (
-	github.com/evertrust/horizon-go/v2 v2.9.2
+	github.com/evertrust/horizon-go/v2 v2.9.2-1
 	github.com/hashicorp/terraform-plugin-docs v0.16.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-framework-timeouts v0.6.0
