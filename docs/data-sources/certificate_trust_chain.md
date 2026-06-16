@@ -61,5 +61,5 @@ output "file_chain" {
 
 - `chain` (List of String) PEM-encoded certificates returned by Horizon, one entry per certificate, in the requested order.
 - `chain_pem` (String) Concatenated PEM bundle of the trust chain, in the requested order.
-- `id` (String) Stable identifier derived from the input certificate content and the requested order.
+- `id` (String) SHA-256 (hex) of the concatenated PEM chain returned by Horizon, in the requested order. Two reads with the same input certificate but different `order` values produce different ids.
 - `length` (Number) Number of certificates in the returned chain.

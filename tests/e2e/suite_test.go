@@ -209,6 +209,7 @@ func (s *E2ESuite) TestAcceptance() {
 		"HORIZON_PASSWORD="+AdminPassword,
 		"HORIZON_PROFILE="+CentralizedProfile,
 		"HORIZON_DECENTRALIZED_PROFILE="+DecentralizedProfile,
+		"HORIZON_ESCROW_PROFILE="+CentralizedProfile,
 	)
 
 	t.Log("running acceptance tests under ./tests/ (go test -json)")
