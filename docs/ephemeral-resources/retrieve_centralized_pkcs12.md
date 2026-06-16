@@ -4,7 +4,7 @@ page_title: "horizon_retrieve_centralized_pkcs12 Ephemeral Resource - horizon"
 subcategory: ""
 description: |-
   Retrieves the centralized PKCS#12 bundle and its password for an existing Horizon certificate. The returned material is exposed only as ephemeral output and is never written to Terraform state, saved plan files, or provider private state.
-  !> Warning — not a recommended pattern. Distributing certificate private material through Terraform is discouraged. Prefer decentralized enrollment (private key never leaving the consumer) whenever possible. This resource may be deprecated in a future release if a safer delivery mechanism becomes available.
+  !> Warning — not a recommended pattern. Distributing certificate private material through Terraform is discouraged. Prefer decentralized enrollment (private key never leaving the consumer), or use Horizon's native integrations to deliver the certificate to its target system, whenever possible. This resource may be deprecated in a future release if a safer delivery mechanism becomes available.
   ~> Recovery requires key escrow. When no existing request already exposes the material, the provider creates a WebRA recover request, which Horizon only allows for certificates whose private key was escrowed at enrollment. Against a non-escrow profile the resource returns an actionable error.
 ---
 
@@ -12,7 +12,7 @@ description: |-
 
 Retrieves the centralized PKCS#12 bundle and its password for an existing Horizon certificate. The returned material is exposed only as ephemeral output and is never written to Terraform state, saved plan files, or provider private state.
 
-!> **Warning — not a recommended pattern.** Distributing certificate private material through Terraform is discouraged. Prefer decentralized enrollment (private key never leaving the consumer) whenever possible. This resource may be deprecated in a future release if a safer delivery mechanism becomes available.
+!> **Warning — not a recommended pattern.** Distributing certificate private material through Terraform is discouraged. Prefer decentralized enrollment (private key never leaving the consumer), or use Horizon's native integrations to deliver the certificate to its target system, whenever possible. This resource may be deprecated in a future release if a safer delivery mechanism becomes available.
 
 ~> **Recovery requires key escrow.** When no existing request already exposes the material, the provider creates a WebRA recover request, which Horizon only allows for certificates whose private key was escrowed at enrollment. Against a non-escrow profile the resource returns an actionable error.
 
