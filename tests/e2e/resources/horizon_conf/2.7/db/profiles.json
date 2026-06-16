@@ -89,7 +89,7 @@
     "cryptoPolicy": {
       "centralized": true,
       "decentralized": false,
-      "escrow": false,
+      "escrow": true,
       "defaultKeyType": "rsa-2048",
       "authorizedKeyTypes": [
         "rsa-2048",
@@ -102,8 +102,8 @@
       "p12storeEncryptionType": "DES_AVERAGE",
       "showP12PasswordOnEnroll": true,
       "showP12OnEnroll": false,
-      "showP12PasswordOnRecover": false,
-      "showP12OnRecover": false
+      "showP12PasswordOnRecover": true,
+      "showP12OnRecover": true
     },
     "selfPermissions": {
       "selfUpdate": false,

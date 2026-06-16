@@ -8,6 +8,7 @@ import (
 
 	horizon "github.com/evertrust/horizon-go/v2"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -17,6 +18,7 @@ import (
 
 // Ensure HorizonProvider satisfies various provider interfaces.
 var _ provider.Provider = &HorizonProvider{}
+var _ provider.ProviderWithEphemeralResources = &HorizonProvider{}
 
 // HorizonProvider defines the provider implementation.
 type HorizonProvider struct {
@@ -150,6 +152,7 @@ func (p *HorizonProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	resp.DataSourceData = client
 	resp.ResourceData = client
+	resp.EphemeralResourceData = client
 }
 
 func (p *HorizonProvider) Resources(ctx context.Context) []func() resource.Resource {
@@ -161,6 +164,12 @@ func (p *HorizonProvider) Resources(ctx context.Context) []func() resource.Resou
 func (p *HorizonProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewCertificateTrustChainDataSource,
+	}
+}
+
+func (p *HorizonProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
+	return []func() ephemeral.EphemeralResource{
+		NewRetrieveCentralizedPkcs12EphemeralResource,
 	}
 }
 
