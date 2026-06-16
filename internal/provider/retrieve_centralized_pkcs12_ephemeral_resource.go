@@ -254,30 +254,30 @@ func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID,
 		return nil, false
 	}
 
-	id := selectUsableRequestID(searchResp, certID, workflow)
-	if id == "" {
-		return nil, false
+	// Scan every matching request newest-first: the newest one may lack material
+	for _, id := range usableRequestIDs(searchResp, certID, workflow) {
+		getResp, err := rc.get(ctx, id)
+		if err != nil {
+			tflog.Debug(ctx, fmt.Sprintf("Skipping %s request %s; get was not usable", workflow, id), map[string]any{"error": err.Error()})
+			continue
+		}
+
+		material, ok := materialFromGet(getResp)
+		if !ok || !material.hasMaterial() {
+			continue
+		}
+
+		material.Source = source
+		if material.CertificateID == "" {
+			material.CertificateID = certID
+		}
+		if material.HolderID == "" {
+			material.HolderID = holderID
+		}
+		return &material, true
 	}
 
-	getResp, err := rc.get(ctx, id)
-	if err != nil {
-		tflog.Debug(ctx, fmt.Sprintf("Skipping reuse of %s request %s; get was not usable", workflow, id), map[string]any{"error": err.Error()})
-		return nil, false
-	}
-
-	material, ok := materialFromGet(getResp)
-	if !ok || !material.hasMaterial() {
-		return nil, false
-	}
-
-	material.Source = source
-	if material.CertificateID == "" {
-		material.CertificateID = certID
-	}
-	if material.HolderID == "" {
-		material.HolderID = holderID
-	}
-	return &material, true
+	return nil, false
 }
 
 func createRecovery(ctx context.Context, rc requestClient, certID, holderID string) (*pkcs12Material, diag.Diagnostics) {
@@ -386,10 +386,12 @@ func createRecovery(ctx context.Context, rc requestClient, certID, holderID stri
 	return &getMaterial, diags
 }
 
-func selectUsableRequestID(resp *models.RequestSearchResultsResponse, certID, workflow string) string {
+// usableRequestIDs returns the IDs of search results matching the requested
+func usableRequestIDs(resp *models.RequestSearchResultsResponse, certID, workflow string) []string {
 	if resp == nil {
-		return ""
+		return nil
 	}
+	var ids []string
 	for _, result := range resp.Results {
 		if !result.HasCertificateId() || result.GetCertificateId() != certID {
 			continue
@@ -398,10 +400,10 @@ func selectUsableRequestID(resp *models.RequestSearchResultsResponse, certID, wo
 			continue
 		}
 		if id := result.GetId(); id != "" {
-			return id
+			ids = append(ids, id)
 		}
 	}
-	return ""
+	return ids
 }
 
 func materialFromGet(resp *models.RequestGet200Response) (pkcs12Material, bool) {

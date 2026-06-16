@@ -234,6 +234,46 @@ func TestResolvePkcs12(t *testing.T) {
 			},
 			wantSource: sourceCreatedRecoveryRequest,
 		},
+		{
+			name: "enroll: newest lacks material, older completed request is reused",
+			rc: &fakeRequestClient{
+				searchResults: searchMap(
+					multiSearchResults(
+						searchResult("e-new", testCertID, workflowEnroll),
+						searchResult("e-old", testCertID, workflowEnroll),
+					),
+					emptySearchResults(),
+				),
+				getResponses: map[string]*models.RequestGet200Response{
+					"e-new": enrollGet("e-new", testCertID, "", "", models.REQUESTSTATUS_PENDING),
+					"e-old": enrollGet("e-old", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantSource:    sourceEnrollRequest,
+			wantRequestID: "e-old",
+			wantPkcs12:    testPkcs12,
+			wantPassword:  testPassword,
+		},
+		{
+			name: "recover: newest lacks material, older completed request is reused",
+			rc: &fakeRequestClient{
+				searchResults: searchMap(
+					emptySearchResults(),
+					multiSearchResults(
+						searchResult("r-new", testCertID, workflowRecover),
+						searchResult("r-old", testCertID, workflowRecover),
+					),
+				),
+				getResponses: map[string]*models.RequestGet200Response{
+					"r-new": recoverGet("r-new", testCertID, "", "", models.REQUESTSTATUS_PENDING),
+					"r-old": recoverGet("r-old", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantSource:    sourceRecoverRequest,
+			wantRequestID: "r-old",
+			wantPkcs12:    testPkcs12,
+			wantPassword:  testPassword,
+		},
 
 		// --- existing recover request -----------------------------------
 		{
@@ -506,32 +546,45 @@ func searchResult(id, certID, workflow string) models.RequestSearchResult {
 	return *r
 }
 
-func TestSelectUsableRequestID(t *testing.T) {
-	// A holder-scoped page containing several certificates' requests: only the
-	// exact certificate-id match must be selected, newest first.
-	multi := models.NewRequestSearchResultsResponse(false, 1, 3, []models.RequestSearchResult{
+// multiSearchResults builds a holder-scoped search page from the given results.
+func multiSearchResults(results ...models.RequestSearchResult) *models.RequestSearchResultsResponse {
+	return models.NewRequestSearchResultsResponse(false, 1, int64(len(results)), results)
+}
+
+func TestUsableRequestIDs(t *testing.T) {
+	// A holder-scoped page mixing certificates and workflows: only exact
+	// certificate-id + workflow matches are kept, in newest-first order.
+	multi := multiSearchResults(
 		searchResult("other-1", "other-cert", workflowEnroll),
-		searchResult("mine-1", testCertID, workflowEnroll),
-	})
+		searchResult("mine-newest", testCertID, workflowEnroll),
+		searchResult("mine-recover", testCertID, workflowRecover),
+		searchResult("mine-older", testCertID, workflowEnroll),
+	)
 
 	tests := []struct {
 		name     string
 		resp     *models.RequestSearchResultsResponse
 		certID   string
 		workflow string
-		want     string
+		want     []string
 	}{
-		{name: "nil response", resp: nil, certID: testCertID, workflow: workflowEnroll, want: ""},
-		{name: "empty results", resp: emptySearchResults(), certID: testCertID, workflow: workflowEnroll, want: ""},
-		{name: "matching result", resp: searchResultsWith("e1", testCertID, workflowEnroll), certID: testCertID, workflow: workflowEnroll, want: "e1"},
-		{name: "wrong certificate", resp: searchResultsWith("e1", "other-cert", workflowEnroll), certID: testCertID, workflow: workflowEnroll, want: ""},
-		{name: "wrong workflow", resp: searchResultsWith("e1", testCertID, workflowRecover), certID: testCertID, workflow: workflowEnroll, want: ""},
-		{name: "holder page picks exact cert match", resp: multi, certID: testCertID, workflow: workflowEnroll, want: "mine-1"},
+		{name: "nil response", resp: nil, certID: testCertID, workflow: workflowEnroll, want: nil},
+		{name: "empty results", resp: emptySearchResults(), certID: testCertID, workflow: workflowEnroll, want: nil},
+		{name: "single match", resp: searchResultsWith("e1", testCertID, workflowEnroll), certID: testCertID, workflow: workflowEnroll, want: []string{"e1"}},
+		{name: "wrong certificate", resp: searchResultsWith("e1", "other-cert", workflowEnroll), certID: testCertID, workflow: workflowEnroll, want: nil},
+		{name: "wrong workflow", resp: searchResultsWith("e1", testCertID, workflowRecover), certID: testCertID, workflow: workflowEnroll, want: nil},
+		{name: "keeps all matches newest-first", resp: multi, certID: testCertID, workflow: workflowEnroll, want: []string{"mine-newest", "mine-older"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := selectUsableRequestID(tt.resp, tt.certID, tt.workflow); got != tt.want {
-				t.Errorf("selectUsableRequestID() = %q, want %q", got, tt.want)
+			got := usableRequestIDs(tt.resp, tt.certID, tt.workflow)
+			if len(got) != len(tt.want) {
+				t.Fatalf("usableRequestIDs() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("usableRequestIDs()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
 			}
 		})
 	}
