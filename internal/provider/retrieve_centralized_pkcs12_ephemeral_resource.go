@@ -174,7 +174,6 @@ func (r *RetrieveCentralizedPkcs12EphemeralResource) Open(ctx context.Context, r
 	}
 
 	data.CertificateID = types.StringValue(certID)
-	data.SkipEscrowCheck = types.BoolValue(skipEscrowCheck)
 
 	if material == nil {
 		data.HolderID = types.StringNull()
