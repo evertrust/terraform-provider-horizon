@@ -24,3 +24,12 @@ resource "some_secret_consumer" "server" {
   write_only_pkcs12   = ephemeral.horizon_retrieve_centralized_pkcs12.server.pkcs12
   write_only_password = ephemeral.horizon_retrieve_centralized_pkcs12.server.password
 }
+
+# When the PKCS#12 material is optional, set skip_escrow_check to true: the
+# provider only looks up an existing enrollment request and never triggers
+# recovery. If no material is available, the resource returns successfully
+# with every computed field set to null instead of failing.
+ephemeral "horizon_retrieve_centralized_pkcs12" "optional" {
+  certificate_id    = horizon_certificate.server.id
+  skip_escrow_check = true
+}

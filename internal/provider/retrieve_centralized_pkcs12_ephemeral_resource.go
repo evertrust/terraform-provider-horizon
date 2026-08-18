@@ -39,6 +39,7 @@ type RetrieveCentralizedPkcs12EphemeralResource struct {
 
 type retrieveCentralizedPkcs12Model struct {
 	CertificateID   types.String `tfsdk:"certificate_id"`
+	SkipEscrowCheck types.Bool   `tfsdk:"skip_escrow_check"`
 	HolderID        types.String `tfsdk:"holder_id"`
 	RequestID       types.String `tfsdk:"request_id"`
 	RequestWorkflow types.String `tfsdk:"request_workflow"`
@@ -77,6 +78,16 @@ func (r *RetrieveCentralizedPkcs12EphemeralResource) Schema(ctx context.Context,
 			"certificate_id": schema.StringAttribute{
 				Required:    true,
 				Description: "Horizon certificate ID whose centralized PKCS#12 material should be retrieved.",
+			},
+			"skip_escrow_check": schema.BoolAttribute{
+				Optional: true,
+				MarkdownDescription: "When `false` (the default), the provider uses the complete enrollment and recovery workflow: it reuses an existing " +
+					"enroll or recover request when possible, otherwise it creates a WebRA recovery request, which requires the certificate's private key " +
+					"to have been escrowed at enrollment. When `true`, the provider only performs a best-effort lookup of existing enrollment material: it " +
+					"skips escrow validation and every recovery mechanism, and if retrieval is unsuccessful it returns successfully with every computed " +
+					"field set to null instead of failing.\n\n" +
+					"~> **Best-effort behavior.** A retrieval failure, such as a transient API error or an enrollment request that expired or was purged, " +
+					"becomes a null result instead of an actionable error. Only enable this when the downstream consumer can handle null PKCS#12 material.",
 			},
 			"holder_id": schema.StringAttribute{
 				Computed:    true,
@@ -154,20 +165,34 @@ func (r *RetrieveCentralizedPkcs12EphemeralResource) Open(ctx context.Context, r
 		return
 	}
 
-	material, diags := resolvePkcs12(ctx, horizonRequestClient{client: r.client}, certID)
+	skipEscrowCheck := data.SkipEscrowCheck.ValueBool()
+
+	material, diags := resolvePkcs12(ctx, horizonRequestClient{client: r.client}, certID, skipEscrowCheck)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	data.CertificateID = types.StringValue(material.CertificateID)
-	data.HolderID = types.StringValue(material.HolderID)
-	data.RequestID = types.StringValue(material.RequestID)
-	data.RequestWorkflow = types.StringValue(material.RequestWorkflow)
-	data.RequestStatus = types.StringValue(material.RequestStatus)
-	data.Source = types.StringValue(material.Source)
-	data.Pkcs12 = types.StringValue(material.Pkcs12)
-	data.Password = types.StringValue(material.Password)
+	data.CertificateID = types.StringValue(certID)
+	data.SkipEscrowCheck = types.BoolValue(skipEscrowCheck)
+
+	if material == nil {
+		data.HolderID = types.StringNull()
+		data.RequestID = types.StringNull()
+		data.RequestWorkflow = types.StringNull()
+		data.RequestStatus = types.StringNull()
+		data.Source = types.StringNull()
+		data.Pkcs12 = types.StringNull()
+		data.Password = types.StringNull()
+	} else {
+		data.HolderID = types.StringValue(material.HolderID)
+		data.RequestID = types.StringValue(material.RequestID)
+		data.RequestWorkflow = types.StringValue(material.RequestWorkflow)
+		data.RequestStatus = types.StringValue(material.RequestStatus)
+		data.Source = types.StringValue(material.Source)
+		data.Pkcs12 = types.StringValue(material.Pkcs12)
+		data.Password = types.StringValue(material.Password)
+	}
 
 	resp.Diagnostics.Append(resp.Result.Set(ctx, &data)...)
 }
@@ -222,7 +247,11 @@ func (c horizonRequestClient) submitRecover(ctx context.Context, certID, passwor
 	return resp, err
 }
 
-func resolvePkcs12(ctx context.Context, rc requestClient, certID string) (*pkcs12Material, diag.Diagnostics) {
+func resolvePkcs12(ctx context.Context, rc requestClient, certID string, skipEscrowCheck bool) (*pkcs12Material, diag.Diagnostics) {
+	if skipEscrowCheck {
+		return resolvePkcs12EnrollmentOnly(ctx, rc, certID)
+	}
+
 	var diags diag.Diagnostics
 
 	holderID, err := rc.certificateHolderID(ctx, certID)
@@ -240,6 +269,29 @@ func resolvePkcs12(ctx context.Context, rc requestClient, certID string) (*pkcs1
 	}
 
 	return createRecovery(ctx, rc, certID, holderID)
+}
+
+func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID string) (*pkcs12Material, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	holderID, err := rc.certificateHolderID(ctx, certID)
+	if err != nil {
+		diags.AddWarning(
+			"No PKCS#12 material retrieved",
+			"skip_escrow_check is enabled and the certificate could not be looked up, so retrieval was skipped and null values were returned.",
+		)
+		return nil, diags
+	}
+
+	if material, found := tryExistingRequest(ctx, rc, certID, holderID, workflowEnroll, sourceEnrollRequest); found {
+		return material, nil
+	}
+
+	diags.AddWarning(
+		"No PKCS#12 material retrieved",
+		"skip_escrow_check is enabled and no usable existing enrollment request was found for this certificate, so null values were returned.",
+	)
+	return nil, diags
 }
 
 func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID, workflow, source string) (*pkcs12Material, bool) {
