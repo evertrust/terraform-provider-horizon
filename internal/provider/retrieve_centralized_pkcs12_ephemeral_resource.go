@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
 	"strings"
 
 	horizon "github.com/evertrust/horizon-go/v2"
@@ -84,10 +86,11 @@ func (r *RetrieveCentralizedPkcs12EphemeralResource) Schema(ctx context.Context,
 				MarkdownDescription: "When `false` (the default), the provider uses the complete enrollment and recovery workflow: it reuses an existing " +
 					"enroll or recover request when possible, otherwise it creates a WebRA recovery request, which requires the certificate's private key " +
 					"to have been escrowed at enrollment. When `true`, the provider only performs a best-effort lookup of existing enrollment material: it " +
-					"skips escrow validation and every recovery mechanism, and if retrieval is unsuccessful it returns successfully with every computed " +
-					"field set to null instead of failing.\n\n" +
-					"~> **Best-effort behavior.** A retrieval failure, such as a transient API error or an enrollment request that expired or was purged, " +
-					"becomes a null result instead of an actionable error. Only enable this when the downstream consumer can handle null PKCS#12 material.",
+					"skips escrow validation and every recovery mechanism, and if it can't find the certificate or a usable enrollment request, it " +
+					"returns successfully with every computed field null instead of failing.\n\n" +
+					"~> **Best-effort behavior.** Only a 500 or an auth failure (401/403) is treated as an actual error; anything else, no matching " +
+					"certificate, an expired or purged enrollment request, a bad request, comes back as a null result. Only enable this if the " +
+					"downstream consumer can handle null PKCS#12 material.",
 			},
 			"holder_id": schema.StringAttribute{
 				Computed:    true,
@@ -259,11 +262,11 @@ func resolvePkcs12(ctx context.Context, rc requestClient, certID string, skipEsc
 		return nil, diags
 	}
 
-	if material, found := tryExistingRequest(ctx, rc, certID, holderID, workflowEnroll, sourceEnrollRequest); found {
+	if material, found, _ := tryExistingRequest(ctx, rc, certID, holderID, workflowEnroll, sourceEnrollRequest); found {
 		return material, nil
 	}
 
-	if material, found := tryExistingRequest(ctx, rc, certID, holderID, workflowRecover, sourceRecoverRequest); found {
+	if material, found, _ := tryExistingRequest(ctx, rc, certID, holderID, workflowRecover, sourceRecoverRequest); found {
 		return material, nil
 	}
 
@@ -275,14 +278,23 @@ func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID s
 
 	holderID, err := rc.certificateHolderID(ctx, certID)
 	if err != nil {
+		if isHardFailure(err) {
+			diags.AddError("Failed to retrieve certificate", err.Error())
+			return nil, diags
+		}
 		diags.AddWarning(
 			"No PKCS#12 material retrieved",
-			"skip_escrow_check is enabled and the certificate could not be looked up, so retrieval was skipped and null values were returned.",
+			"skip_escrow_check is enabled and the certificate could not be found, so retrieval was skipped and null values were returned.",
 		)
 		return nil, diags
 	}
 
-	if material, found := tryExistingRequest(ctx, rc, certID, holderID, workflowEnroll, sourceEnrollRequest); found {
+	material, found, err := tryExistingRequest(ctx, rc, certID, holderID, workflowEnroll, sourceEnrollRequest)
+	if err != nil {
+		diags.AddError("Failed to look up existing enrollment request", err.Error())
+		return nil, diags
+	}
+	if found {
 		return material, nil
 	}
 
@@ -293,16 +305,19 @@ func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID s
 	return nil, diags
 }
 
-func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID, workflow, source string) (*pkcs12Material, bool) {
+func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID, workflow, source string) (*pkcs12Material, bool, error) {
 	if holderID == "" {
 		// Without a holder there is nothing to scope the search by.
-		return nil, false
+		return nil, false, nil
 	}
 
 	searchResp, err := rc.search(ctx, holderID, workflow)
 	if err != nil {
 		tflog.Debug(ctx, fmt.Sprintf("Skipping reuse of %s requests; search was not usable", workflow), map[string]any{"error": err.Error()})
-		return nil, false
+		if isHardFailure(err) {
+			return nil, false, fmt.Errorf("searching %s requests: %w", workflow, err)
+		}
+		return nil, false, nil
 	}
 
 	// Scan every matching request newest-first: the newest one may lack material
@@ -310,6 +325,9 @@ func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID,
 		getResp, err := rc.get(ctx, id)
 		if err != nil {
 			tflog.Debug(ctx, fmt.Sprintf("Skipping %s request %s; get was not usable", workflow, id), map[string]any{"error": err.Error()})
+			if isHardFailure(err) {
+				return nil, false, fmt.Errorf("retrieving %s request %s: %w", workflow, id, err)
+			}
 			continue
 		}
 
@@ -325,10 +343,47 @@ func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID,
 		if material.HolderID == "" {
 			material.HolderID = holderID
 		}
-		return &material, true
+		return &material, true, nil
 	}
 
-	return nil, false
+	return nil, false, nil
+}
+
+type sdkModelError interface {
+	Model() interface{}
+}
+
+func basicErrorFrom(err error) (models.BasicError, bool) {
+	for err != nil {
+		if m, ok := err.(sdkModelError); ok {
+			if basicErr, ok := m.Model().(models.BasicError); ok {
+				return basicErr, true
+			}
+		}
+		err = errors.Unwrap(err)
+	}
+	return models.BasicError{}, false
+}
+
+func isHardFailure(err error) bool {
+	basicErr, ok := basicErrorFrom(err)
+	if !ok {
+		return false
+	}
+	switch basicErr.GetStatus() {
+	case http.StatusInternalServerError, http.StatusUnauthorized, http.StatusForbidden:
+		return true
+	default:
+		return false
+	}
+}
+
+func isCertificateNotEscrowedError(err error) bool {
+	if strings.Contains(strings.ToLower(err.Error()), "escrow") {
+		return true
+	}
+	basicErr, ok := basicErrorFrom(err)
+	return ok && strings.Contains(strings.ToLower(basicErr.GetMessage()), "escrow")
 }
 
 func createRecovery(ctx context.Context, rc requestClient, certID, holderID string) (*pkcs12Material, diag.Diagnostics) {
@@ -345,7 +400,7 @@ func createRecovery(ctx context.Context, rc requestClient, certID, holderID stri
 
 	submitResp, err := rc.submitRecover(ctx, certID, password)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "escrow") {
+		if isCertificateNotEscrowedError(err) {
 			diags.AddError(
 				"Certificate is not escrowed",
 				"Horizon can only recover centralized PKCS#12 material for certificates whose private key was escrowed at enrollment. "+

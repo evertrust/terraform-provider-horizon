@@ -65,9 +65,9 @@ ephemeral "horizon_retrieve_centralized_pkcs12" "optional" {
 
 ### Optional
 
-- `skip_escrow_check` (Boolean) When `false` (the default), the provider uses the complete enrollment and recovery workflow: it reuses an existing enroll or recover request when possible, otherwise it creates a WebRA recovery request, which requires the certificate's private key to have been escrowed at enrollment. When `true`, the provider only performs a best-effort lookup of existing enrollment material: it skips escrow validation and every recovery mechanism, and if retrieval is unsuccessful it returns successfully with every computed field set to null instead of failing.
+- `skip_escrow_check` (Boolean) When `false` (the default), the provider uses the complete enrollment and recovery workflow: it reuses an existing enroll or recover request when possible, otherwise it creates a WebRA recovery request, which requires the certificate's private key to have been escrowed at enrollment. When `true`, the provider only performs a best-effort lookup of existing enrollment material: it skips escrow validation and every recovery mechanism, and if it can't find the certificate or a usable enrollment request, it returns successfully with every computed field null instead of failing.
 
-~> **Best-effort behavior.** A retrieval failure, such as a transient API error or an enrollment request that expired or was purged, becomes a null result instead of an actionable error. Only enable this when the downstream consumer can handle null PKCS#12 material.
+~> **Best-effort behavior.** Only a 500 or an auth failure (401/403) is treated as an actual error; anything else, no matching certificate, an expired or purged enrollment request, a bad request, comes back as a null result. Only enable this if the downstream consumer can handle null PKCS#12 material.
 
 ### Read-Only
 
