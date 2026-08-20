@@ -24,6 +24,7 @@ const (
 	workflowRecover = "recover"
 
 	sourceEnrollRequest          = "enroll_request"
+	sourceRenewalRequest         = "renew_request"
 	sourceRecoverRequest         = "recover_request"
 	sourceCreatedRecoveryRequest = "created_recovery_request"
 )
@@ -102,7 +103,7 @@ func (r *RetrieveCentralizedPkcs12EphemeralResource) Schema(ctx context.Context,
 			},
 			"request_workflow": schema.StringAttribute{
 				Computed:    true,
-				Description: "Request workflow that produced the returned PKCS#12 material. One of `enroll` or `recover`.",
+				Description: "Request workflow that produced the returned PKCS#12 material. One of `enroll`, `renew`, or `recover`.",
 			},
 			"request_status": schema.StringAttribute{
 				Computed:    true,
@@ -110,7 +111,7 @@ func (r *RetrieveCentralizedPkcs12EphemeralResource) Schema(ctx context.Context,
 			},
 			"source": schema.StringAttribute{
 				Computed:    true,
-				Description: "How the provider obtained the material. One of `enroll_request`, `recover_request`, or `created_recovery_request`.",
+				Description: "How the provider obtained the material. One of `enroll_request`, `renew_request`, `recover_request`, or `created_recovery_request`.",
 			},
 			"pkcs12": schema.StringAttribute{
 				Computed:    true,
@@ -266,6 +267,10 @@ func resolvePkcs12(ctx context.Context, rc requestClient, certID string, skipEsc
 		return material, nil
 	}
 
+	if material, found, _ := tryExistingRequest(ctx, rc, certID, holderID, workflowRenew, sourceRenewalRequest); found {
+		return material, nil
+	}
+
 	if material, found, _ := tryExistingRequest(ctx, rc, certID, holderID, workflowRecover, sourceRecoverRequest); found {
 		return material, nil
 	}
@@ -298,9 +303,18 @@ func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID s
 		return material, nil
 	}
 
+	material, found, err = tryExistingRequest(ctx, rc, certID, holderID, workflowRenew, sourceRenewalRequest)
+	if err != nil {
+		diags.AddError("Failed to look up existing renewal request", err.Error())
+		return nil, diags
+	}
+	if found {
+		return material, nil
+	}
+
 	diags.AddWarning(
 		"No PKCS#12 material retrieved",
-		"skip_escrow_check is enabled and no usable existing enrollment request was found for this certificate, so null values were returned.",
+		"skip_escrow_check is enabled and no usable existing enrollment or renewal request was found for this certificate, so null values were returned.",
 	)
 	return nil, diags
 }
@@ -522,10 +536,35 @@ func materialFromGet(resp *models.RequestGet200Response) (pkcs12Material, bool) 
 	if r := resp.WebRAEnrollRequestOnGetResponse; r != nil {
 		return materialFromEnrollGet(r), true
 	}
+	if r := resp.WebRARenewRequestOnApproveResponse; r != nil {
+		return materialFromRenewApprove(r), true
+	}
 	return pkcs12Material{}, false
 }
 
 func materialFromEnrollGet(r *models.WebRAEnrollRequestOnGetResponse) pkcs12Material {
+	m := pkcs12Material{
+		RequestID:       r.GetId(),
+		RequestWorkflow: r.Workflow,
+		RequestStatus:   string(r.GetStatus()),
+		HolderID:        r.HolderId,
+	}
+	if r.HasCertificate() {
+		cert := r.GetCertificate()
+		m.CertificateID = cert.GetId()
+	}
+	if r.HasPkcs12() {
+		pkcs12 := r.GetPkcs12()
+		m.Pkcs12 = pkcs12.GetValue()
+	}
+	if r.HasPassword() {
+		password := r.GetPassword()
+		m.Password = password.GetValue()
+	}
+	return m
+}
+
+func materialFromRenewApprove(r *models.WebRARenewRequestOnApproveResponse) pkcs12Material {
 	m := pkcs12Material{
 		RequestID:       r.GetId(),
 		RequestWorkflow: r.Workflow,
