@@ -76,5 +76,5 @@ ephemeral "horizon_retrieve_centralized_pkcs12" "optional" {
 - `pkcs12` (String, Sensitive) Base64-encoded PKCS#12 returned by Horizon.
 - `request_id` (String) Horizon request ID that produced the returned PKCS#12 material.
 - `request_status` (String) Final status of the request used to retrieve the PKCS#12 material.
-- `request_workflow` (String) Request workflow that produced the returned PKCS#12 material. One of `enroll` or `recover`.
-- `source` (String) How the provider obtained the material. One of `enroll_request`, `recover_request`, or `created_recovery_request`.
+- `request_workflow` (String) Request workflow that produced the returned PKCS#12 material. One of `enroll`, `renew`, or `recover`.
+- `source` (String) How the provider obtained the material. One of `enroll_request`, `renew_request`, `recover_request`, or `created_recovery_request`.

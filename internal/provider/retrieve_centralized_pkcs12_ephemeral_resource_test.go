@@ -119,6 +119,25 @@ func recoverGet(id, certID, pkcs12, password string, status models.RequestStatus
 	return &resp
 }
 
+func renewGet(id, certID, pkcs12, password string, status models.RequestStatus) *models.RequestGet200Response {
+	r := models.NewWebRARenewRequestOnApproveResponseWithDefaults()
+	r.Id = id
+	r.Workflow = workflowRenew
+	r.Status = status
+	r.HolderId = testHolderID
+	if certID != "" {
+		r.SetCertificate(certificateWithID(certID))
+	}
+	if pkcs12 != "" {
+		r.SetPkcs12(secret(pkcs12))
+	}
+	if password != "" {
+		r.SetPassword(secret(password))
+	}
+	resp := models.WebRARenewRequestOnApproveResponseAsRequestGet200Response(r)
+	return &resp
+}
+
 func recoverSubmit(id, certID, pkcs12, password string, status models.RequestStatus) *models.RequestSubmit201Response {
 	r := models.NewWebRARecoverRequestOnSubmitResponseWithDefaults()
 	r.Id = id
@@ -142,6 +161,14 @@ func recoverSubmit(id, certID, pkcs12, password string, status models.RequestSta
 func searchMap(enroll, recover *models.RequestSearchResultsResponse) map[string]*models.RequestSearchResultsResponse {
 	return map[string]*models.RequestSearchResultsResponse{
 		workflowEnroll:  enroll,
+		workflowRecover: recover,
+	}
+}
+
+func searchMapWithRenew(enroll, renew, recover *models.RequestSearchResultsResponse) map[string]*models.RequestSearchResultsResponse {
+	return map[string]*models.RequestSearchResultsResponse{
+		workflowEnroll:  enroll,
+		workflowRenew:   renew,
 		workflowRecover: recover,
 	}
 }
@@ -277,6 +304,55 @@ func TestResolvePkcs12(t *testing.T) {
 			wantRequestID: "r-old",
 			wantPkcs12:    testPkcs12,
 			wantPassword:  testPassword,
+		},
+
+		{
+			name: "renew: completed request returns full contract",
+			rc: &fakeRequestClient{
+				searchResults: searchMapWithRenew(emptySearchResults(), searchResultsWith("n1", testCertID, workflowRenew), emptySearchResults()),
+				getResponses: map[string]*models.RequestGet200Response{
+					"n1": renewGet("n1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantSource:    sourceRenewalRequest,
+			wantWorkflow:  workflowRenew,
+			wantStatus:    string(models.REQUESTSTATUS_COMPLETED),
+			wantRequestID: "n1",
+			wantCertID:    testCertID,
+			wantPkcs12:    testPkcs12,
+			wantPassword:  testPassword,
+		},
+		{
+			name: "renew is preferred over recover when both have usable material",
+			rc: &fakeRequestClient{
+				searchResults: searchMapWithRenew(
+					emptySearchResults(),
+					searchResultsWith("n1", testCertID, workflowRenew),
+					searchResultsWith("r1", testCertID, workflowRecover),
+				),
+				getResponses: map[string]*models.RequestGet200Response{
+					"n1": renewGet("n1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+					"r1": recoverGet("r1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantSource:    sourceRenewalRequest,
+			wantRequestID: "n1",
+		},
+		{
+			name: "enroll is preferred over renew when both have usable material",
+			rc: &fakeRequestClient{
+				searchResults: searchMapWithRenew(
+					searchResultsWith("e1", testCertID, workflowEnroll),
+					searchResultsWith("n1", testCertID, workflowRenew),
+					emptySearchResults(),
+				),
+				getResponses: map[string]*models.RequestGet200Response{
+					"e1": enrollGet("e1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+					"n1": renewGet("n1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantSource:    sourceEnrollRequest,
+			wantRequestID: "e1",
 		},
 
 		// --- existing recover request -----------------------------------
@@ -563,6 +639,19 @@ func TestResolvePkcs12_SkipEscrowCheck(t *testing.T) {
 				searchResults: searchMap(emptySearchResults(), emptySearchResults()),
 			},
 			wantNilMaterial: true,
+		},
+		{
+			name: "existing renewal material is returned when no enrollment material exists",
+			rc: &fakeRequestClient{
+				holderID:      testHolderID,
+				searchResults: searchMapWithRenew(emptySearchResults(), searchResultsWith("n1", testCertID, workflowRenew), emptySearchResults()),
+				getResponses: map[string]*models.RequestGet200Response{
+					"n1": renewGet("n1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantSource:   sourceRenewalRequest,
+			wantPkcs12:   testPkcs12,
+			wantPassword: testPassword,
 		},
 		{
 			name: "certificate not found (404) returns the null result without an error",
