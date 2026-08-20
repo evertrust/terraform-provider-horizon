@@ -24,6 +24,8 @@ type fakeRequestClient struct {
 
 	// recorded inputs
 	searchedHolder    map[string]string // workflow -> holder id passed to search
+	getCalled         []string          // ids passed to get, in call order
+	submitCalled      bool
 	submittedCertID   string
 	submittedPassword string
 }
@@ -41,10 +43,12 @@ func (f *fakeRequestClient) search(_ context.Context, holderID, workflow string)
 }
 
 func (f *fakeRequestClient) get(_ context.Context, id string) (*models.RequestGet200Response, error) {
+	f.getCalled = append(f.getCalled, id)
 	return f.getResponses[id], f.getErr[id]
 }
 
 func (f *fakeRequestClient) submitRecover(_ context.Context, certID, password string) (*models.RequestSubmit201Response, error) {
+	f.submitCalled = true
 	f.submittedCertID = certID
 	f.submittedPassword = password
 	return f.submitResp, f.submitErr
@@ -384,6 +388,14 @@ func TestResolvePkcs12(t *testing.T) {
 			wantErr: "escrow",
 		},
 		{
+			name: "create: non-escrowed certificate is detected from the SDK's structured error message, even when absent from Error()",
+			rc: &fakeRequestClient{
+				searchResults: searchMap(emptySearchResults(), emptySearchResults()),
+				submitErr:     apiErrMessage(400, "Invalid Request", "Recover request can only be made on escrowed certificate"),
+			},
+			wantErr: "escrow",
+		},
+		{
 			name: "create: generic submit error returns a diagnostic",
 			rc: &fakeRequestClient{
 				searchResults: searchMap(emptySearchResults(), emptySearchResults()),
@@ -410,7 +422,7 @@ func TestResolvePkcs12(t *testing.T) {
 				tt.rc.holderID = testHolderID
 			}
 
-			material, diags := resolvePkcs12(context.Background(), tt.rc, testCertID)
+			material, diags := resolvePkcs12(context.Background(), tt.rc, testCertID, false)
 
 			// No diagnostic may ever leak secret material, in any case.
 			for _, d := range diags {
@@ -491,6 +503,244 @@ func TestResolvePkcs12(t *testing.T) {
 	}
 }
 
+// --- skip_escrow_check = true: enrollment-only, non-failing mode ----------
+
+func TestSkipEscrowCheckDefaultsToFalse(t *testing.T) {
+	var data retrieveCentralizedPkcs12Model
+	if !data.SkipEscrowCheck.IsNull() {
+		t.Error("zero-value skip_escrow_check should be null (omitted in config)")
+	}
+	if got := data.SkipEscrowCheck.ValueBool(); got != false {
+		t.Errorf("omitted skip_escrow_check.ValueBool() = %v, want false", got)
+	}
+}
+
+type fakeSDKError struct {
+	msg   string
+	model models.BasicError
+}
+
+func (e *fakeSDKError) Error() string      { return e.msg }
+func (e *fakeSDKError) Model() interface{} { return e.model }
+
+func apiErr(status int, msg string) error {
+	return &fakeSDKError{msg: msg, model: *models.NewBasicError("ERR", msg, int64(status), msg)}
+}
+
+func apiErrMessage(status int, msg, message string) error {
+	e := models.NewBasicError("ERR", message, int64(status), msg)
+	return &fakeSDKError{msg: msg, model: *e}
+}
+
+func TestResolvePkcs12_SkipEscrowCheck(t *testing.T) {
+	tests := []struct {
+		name string
+		rc   *fakeRequestClient
+
+		wantErr         string
+		wantNilMaterial bool
+		wantSource      string
+		wantPkcs12      string
+		wantPassword    string
+	}{
+		{
+			name: "existing enrollment material is returned",
+			rc: &fakeRequestClient{
+				holderID:      testHolderID,
+				searchResults: searchMap(searchResultsWith("e1", testCertID, workflowEnroll), emptySearchResults()),
+				getResponses: map[string]*models.RequestGet200Response{
+					"e1": enrollGet("e1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantSource:   sourceEnrollRequest,
+			wantPkcs12:   testPkcs12,
+			wantPassword: testPassword,
+		},
+		{
+			name: "no enrollment request returns the null result without an error",
+			rc: &fakeRequestClient{
+				holderID:      testHolderID,
+				searchResults: searchMap(emptySearchResults(), emptySearchResults()),
+			},
+			wantNilMaterial: true,
+		},
+		{
+			name: "certificate not found (404) returns the null result without an error",
+			rc: &fakeRequestClient{
+				holderErr: apiErr(404, "Not Found"),
+			},
+			wantNilMaterial: true,
+		},
+		{
+			name: "certificate lookup 500 surfaces an error instead of bypassing",
+			rc: &fakeRequestClient{
+				holderErr: apiErr(500, "Internal Server Error"),
+			},
+			wantErr: "Failed to retrieve certificate",
+		},
+		{
+			name: "certificate lookup auth failure surfaces an error instead of bypassing",
+			rc: &fakeRequestClient{
+				holderErr: apiErr(401, "Unauthorized"),
+			},
+			wantErr: "Failed to retrieve certificate",
+		},
+		{
+			name: "certificate lookup error with no decoded status bypasses",
+			rc: &fakeRequestClient{
+				holderErr: fmt.Errorf("dial tcp: connection refused"),
+			},
+			wantNilMaterial: true,
+		},
+		{
+			name: "enrollment search not found (404) returns the null result without an error",
+			rc: &fakeRequestClient{
+				holderID: testHolderID,
+				searchErr: map[string]error{
+					workflowEnroll: apiErr(404, "Not Found"),
+				},
+			},
+			wantNilMaterial: true,
+		},
+		{
+			name: "enrollment search bad request (400) bypasses, not in the raise allowlist",
+			rc: &fakeRequestClient{
+				holderID: testHolderID,
+				searchErr: map[string]error{
+					workflowEnroll: apiErr(400, "Bad Request Invalid HQL Query"),
+				},
+			},
+			wantNilMaterial: true,
+		},
+		{
+			name: "enrollment search 500 surfaces an error instead of bypassing",
+			rc: &fakeRequestClient{
+				holderID: testHolderID,
+				searchErr: map[string]error{
+					workflowEnroll: apiErr(500, "Internal Server Error"),
+				},
+			},
+			wantErr: "Failed to look up existing enrollment request",
+		},
+		{
+			name: "enrollment get not found (404) returns the null result without an error",
+			rc: &fakeRequestClient{
+				holderID:      testHolderID,
+				searchResults: searchMap(searchResultsWith("e1", testCertID, workflowEnroll), emptySearchResults()),
+				getErr:        map[string]error{"e1": apiErr(404, "Not Found")},
+			},
+			wantNilMaterial: true,
+		},
+		{
+			name: "enrollment get auth failure surfaces an error instead of bypassing",
+			rc: &fakeRequestClient{
+				holderID:      testHolderID,
+				searchResults: searchMap(searchResultsWith("e1", testCertID, workflowEnroll), emptySearchResults()),
+				getErr:        map[string]error{"e1": apiErr(403, "Forbidden")},
+			},
+			wantErr: "Failed to look up existing enrollment request",
+		},
+		{
+			name: "incomplete enrollment material returns the null result without an error",
+			rc: &fakeRequestClient{
+				holderID:      testHolderID,
+				searchResults: searchMap(searchResultsWith("e1", testCertID, workflowEnroll), emptySearchResults()),
+				getResponses: map[string]*models.RequestGet200Response{
+					"e1": enrollGet("e1", testCertID, "", testPassword, models.REQUESTSTATUS_COMPLETED),
+				},
+			},
+			wantNilMaterial: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			material, diags := resolvePkcs12(context.Background(), tt.rc, testCertID, true)
+
+			for _, d := range diags {
+				blob := d.Summary() + " " + d.Detail()
+				if strings.Contains(blob, testPkcs12) || strings.Contains(blob, testPassword) {
+					t.Errorf("diagnostic leaked a secret value: %q / %q", d.Summary(), d.Detail())
+				}
+			}
+
+			if _, searched := tt.rc.searchedHolder[workflowRecover]; searched {
+				t.Error("recovery requests must not be searched when skip_escrow_check is true")
+			}
+			if tt.rc.submitCalled {
+				t.Error("no recovery request must be submitted when skip_escrow_check is true")
+			}
+
+			if tt.wantErr != "" {
+				if !diags.HasError() {
+					t.Fatalf("expected an error diagnostic containing %q, got none", tt.wantErr)
+				}
+				if material != nil {
+					t.Errorf("expected nil material on error, got %+v", material)
+				}
+				found := false
+				for _, d := range diags {
+					if strings.Contains(d.Summary(), tt.wantErr) {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("expected a diagnostic summary containing %q, got %v", tt.wantErr, diags)
+				}
+				return
+			}
+
+			if diags.HasError() {
+				t.Fatalf("expected no error diagnostic for a bypassed retrieval, got: %v", diags)
+			}
+
+			if tt.wantNilMaterial {
+				if material != nil {
+					t.Errorf("expected nil material, got %+v", material)
+				}
+				return
+			}
+
+			if material == nil {
+				t.Fatal("expected material, got nil")
+			}
+			if material.Source != tt.wantSource {
+				t.Errorf("source = %q, want %q", material.Source, tt.wantSource)
+			}
+			if material.Pkcs12 != tt.wantPkcs12 {
+				t.Errorf("pkcs12 = %q, want %q", material.Pkcs12, tt.wantPkcs12)
+			}
+			if material.Password != tt.wantPassword {
+				t.Errorf("password = %q, want %q", material.Password, tt.wantPassword)
+			}
+		})
+	}
+}
+
+func TestResolvePkcs12_SkipEscrowCheck_NoRecoveryGetCalls(t *testing.T) {
+	rc := &fakeRequestClient{
+		holderID:      testHolderID,
+		searchResults: searchMap(emptySearchResults(), searchResultsWith("r1", testCertID, workflowRecover)),
+		getResponses: map[string]*models.RequestGet200Response{
+			"r1": recoverGet("r1", testCertID, testPkcs12, testPassword, models.REQUESTSTATUS_COMPLETED),
+		},
+	}
+
+	material, diags := resolvePkcs12(context.Background(), rc, testCertID, true)
+	if diags.HasError() {
+		t.Fatalf("unexpected error diagnostics: %v", diags)
+	}
+	if material != nil {
+		t.Errorf("expected nil material, got %+v", material)
+	}
+	for _, id := range rc.getCalled {
+		if id == "r1" {
+			t.Error("recover request must not be retrieved when skip_escrow_check is true")
+		}
+	}
+}
+
 func TestResolvePkcs12_SearchesByHolderID(t *testing.T) {
 	// When no enroll request is usable, the provider must search recovery
 	// requests scoped by the resolved holder id (HRQL cannot filter by
@@ -503,7 +753,7 @@ func TestResolvePkcs12_SearchesByHolderID(t *testing.T) {
 		},
 	}
 
-	material, diags := resolvePkcs12(context.Background(), rc, testCertID)
+	material, diags := resolvePkcs12(context.Background(), rc, testCertID, false)
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %v", diags)
 	}
@@ -526,7 +776,7 @@ func TestResolvePkcs12_SubmittedCertIDAndPassword(t *testing.T) {
 		submitResp:    recoverSubmit("rn", testCertID, testPkcs12, "", models.REQUESTSTATUS_COMPLETED),
 	}
 
-	_, diags := resolvePkcs12(context.Background(), rc, testCertID)
+	_, diags := resolvePkcs12(context.Background(), rc, testCertID, false)
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %v", diags)
 	}
