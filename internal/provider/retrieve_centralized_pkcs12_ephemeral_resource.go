@@ -225,7 +225,7 @@ func (c horizonRequestClient) search(ctx context.Context, holderID, workflow str
 	// HRQL field names are lowercase and combinators use `equals` / `and`.
 	query.SetQuery(fmt.Sprintf("holderid equals %q and workflow equals %q", holderID, workflow))
 	query.SetSortedBy([]models.SortElement{*models.NewSortElement("lastModificationDate", "Desc")})
-	query.SetFields([]string{"_id", "certificateId", "workflow", "status", "holderId", "lastModificationDate", "registrationDate"})
+	query.SetFields([]string{"_id", "certificateId", "certificate", "workflow", "status", "holderId", "lastModificationDate", "registrationDate"})
 
 	resp, _, err := c.client.RequestAPI.RequestSearch(ctx).RequestSearchQuery(*query).Execute()
 	return resp, err
@@ -426,6 +426,13 @@ func createRecovery(ctx context.Context, rc requestClient, certID, holderID stri
 		diags.AddError("Failed to submit recovery request", err.Error())
 		return nil, diags
 	}
+	if submitResp == nil {
+		diags.AddError(
+			"Response is nil",
+			"Horizon returned an nil response for the recovery request.",
+		)
+		return nil, diags
+	}
 
 	submit := submitResp.WebRARecoverRequestOnSubmitResponse
 	if submit == nil {
@@ -513,7 +520,10 @@ func usableRequestIDs(resp *models.RequestSearchResultsResponse, certID, workflo
 	}
 	var ids []string
 	for _, result := range resp.Results {
-		if !result.HasCertificateId() || result.GetCertificateId() != certID {
+		if !result.HasCertificate() {
+			continue
+		}
+		if result.GetCertificate().Id != certID {
 			continue
 		}
 		if result.HasWorkflow() && string(result.GetWorkflow()) != workflow {
