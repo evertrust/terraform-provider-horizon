@@ -75,7 +75,7 @@ func emptySearchResults() *models.RequestSearchResultsResponse {
 func searchResultsWith(id, certID, workflow string) *models.RequestSearchResultsResponse {
 	r := models.NewRequestSearchResultWithDefaults()
 	r.SetId(id)
-	r.SetCertificateId(certID)
+	r.SetCertificate(certificateWithID(certID))
 	r.SetWorkflow(models.Workflow(workflow))
 	r.SetStatus(models.REQUESTSTATUS_COMPLETED)
 	return models.NewRequestSearchResultsResponse(false, 1, 1, []models.RequestSearchResult{*r})
@@ -880,7 +880,7 @@ func TestResolvePkcs12_SubmittedCertIDAndPassword(t *testing.T) {
 func searchResult(id, certID, workflow string) models.RequestSearchResult {
 	r := models.NewRequestSearchResultWithDefaults()
 	r.SetId(id)
-	r.SetCertificateId(certID)
+	r.SetCertificate(certificateWithID(certID))
 	r.SetWorkflow(models.Workflow(workflow))
 	return *r
 }

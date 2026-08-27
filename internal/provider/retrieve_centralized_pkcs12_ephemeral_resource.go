@@ -426,6 +426,13 @@ func createRecovery(ctx context.Context, rc requestClient, certID, holderID stri
 		diags.AddError("Failed to submit recovery request", err.Error())
 		return nil, diags
 	}
+	if submitResp == nil {
+		diags.AddError(
+			"Response is nil",
+			"Horizon returned an nil response for the recovery request.",
+		)
+		return nil, diags
+	}
 
 	submit := submitResp.WebRARecoverRequestOnSubmitResponse
 	if submit == nil {
@@ -513,7 +520,10 @@ func usableRequestIDs(resp *models.RequestSearchResultsResponse, certID, workflo
 	}
 	var ids []string
 	for _, result := range resp.Results {
-		if !result.HasCertificate() || result.GetCertificate().Id != certID {
+		if !result.HasCertificate() {
+			continue
+		}
+		if result.GetCertificate().Id != certID {
 			continue
 		}
 		if result.HasWorkflow() && string(result.GetWorkflow()) != workflow {
