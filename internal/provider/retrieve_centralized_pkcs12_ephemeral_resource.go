@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -225,7 +226,7 @@ func (c horizonRequestClient) search(ctx context.Context, holderID, workflow str
 	// HRQL field names are lowercase and combinators use `equals` / `and`.
 	query.SetQuery(fmt.Sprintf("holderid equals %q and workflow equals %q", holderID, workflow))
 	query.SetSortedBy([]models.SortElement{*models.NewSortElement("lastModificationDate", "Desc")})
-	query.SetFields([]string{"_id", "certificateId", "workflow", "status", "holderId", "lastModificationDate", "registrationDate"})
+	query.SetFields([]string{"_id", "certificateId", "certificate", "workflow", "status", "holderId", "lastModificationDate", "registrationDate"})
 
 	resp, _, err := c.client.RequestAPI.RequestSearch(ctx).RequestSearchQuery(*query).Execute()
 	return resp, err
@@ -279,6 +280,7 @@ func resolvePkcs12(ctx context.Context, rc requestClient, certID string, skipEsc
 }
 
 func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID string) (*pkcs12Material, diag.Diagnostics) {
+	fmt.Println("================ Resolving PKCS#12 Enrollment Only ================")
 	var diags diag.Diagnostics
 
 	holderID, err := rc.certificateHolderID(ctx, certID)
@@ -293,6 +295,7 @@ func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID s
 		)
 		return nil, diags
 	}
+	fmt.Printf("================ Found holder id %s ================\n", holderID)
 
 	material, found, err := tryExistingRequest(ctx, rc, certID, holderID, workflowEnroll, sourceEnrollRequest)
 	if err != nil {
@@ -302,6 +305,10 @@ func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID s
 	if found {
 		return material, nil
 	}
+	fmt.Println("================ Material ================")
+	fmt.Println(material)
+	fmt.Println(found)
+	fmt.Println("==============")
 
 	material, found, err = tryExistingRequest(ctx, rc, certID, holderID, workflowRenew, sourceRenewalRequest)
 	if err != nil {
@@ -311,6 +318,10 @@ func resolvePkcs12EnrollmentOnly(ctx context.Context, rc requestClient, certID s
 	if found {
 		return material, nil
 	}
+	fmt.Println("================ Material ================")
+	fmt.Println(material)
+	fmt.Println(found)
+	fmt.Println("==============")
 
 	diags.AddWarning(
 		"No PKCS#12 material retrieved",
@@ -333,6 +344,8 @@ func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID,
 		}
 		return nil, false, nil
 	}
+	data, _ := json.Marshal(searchResp.Results)
+	fmt.Println(string(data))
 
 	// Scan every matching request newest-first: the newest one may lack material
 	for _, id := range usableRequestIDs(searchResp, certID, workflow) {
@@ -344,9 +357,12 @@ func tryExistingRequest(ctx context.Context, rc requestClient, certID, holderID,
 			}
 			continue
 		}
+		fmt.Println("getResp", getResp)
 
 		material, ok := materialFromGet(getResp)
+		fmt.Println("material", material)
 		if !ok || !material.hasMaterial() {
+			fmt.Println("material doesn't exist")
 			continue
 		}
 
@@ -513,13 +529,18 @@ func usableRequestIDs(resp *models.RequestSearchResultsResponse, certID, workflo
 	}
 	var ids []string
 	for _, result := range resp.Results {
-		if !result.HasCertificateId() || result.GetCertificateId() != certID {
+		if !result.HasCertificate() || result.GetCertificate().Id != certID {
+			fmt.Println("certificate id is not valid", result.GetCertificate().Id)
+			fmt.Println("wanted certificate id is", certID)
 			continue
 		}
 		if result.HasWorkflow() && string(result.GetWorkflow()) != workflow {
+			fmt.Println("workflow is not valid", result.GetWorkflow())
+			fmt.Println("wanted workflow is", workflow)
 			continue
 		}
 		if id := result.GetId(); id != "" {
+			fmt.Println("id is ok adding it", result.GetId())
 			ids = append(ids, id)
 		}
 	}
