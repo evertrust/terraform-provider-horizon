@@ -108,6 +108,9 @@ func (s *E2ESuite) SetupSuite() {
 		"TF_VAR_password="+AdminPassword,
 		"TF_VAR_centralized_profile="+CentralizedProfile,
 		"TF_VAR_decentralized_profile="+DecentralizedProfile,
+		"TF_VAR_challenge_centralized_profile="+ChallengeCentralizedProfile,
+		"TF_VAR_challenge_decentralized_profile="+ChallengeDecentralizedProfile,
+		"TF_VAR_challenge_template_profile="+ChallengeTemplateProfile,
 	)
 
 	var initOut bytes.Buffer
@@ -195,6 +198,16 @@ func (s *E2ESuite) TestTrustChain() {
 	s.runTftestFile("certificate_trust_chain.tftest.hcl")
 }
 
+func (s *E2ESuite) TestChallenge() {
+	if !supportsWebRAChallenge(os.Getenv("HRZ_VERSION")) {
+		s.T().Skip("WebRA Challenge mode needs Horizon 2.11+")
+	}
+	challenge, err := issueWebRAChallenge(s.ctx, s.instances.Nginx.HttpUrl, ChallengeCentralizedProfile)
+	s.Require().NoError(err)
+
+	s.runTftestFile("certificate_challenge.tftest.hcl", "TF_VAR_issued_challenge="+challenge)
+}
+
 func (s *E2ESuite) TestAcceptance() {
 	t := s.T()
 	acceptanceDir := filepath.Join(s.repoRoot, "tests")
@@ -211,6 +224,14 @@ func (s *E2ESuite) TestAcceptance() {
 		"HORIZON_DECENTRALIZED_PROFILE="+DecentralizedProfile,
 		"HORIZON_ESCROW_PROFILE="+CentralizedProfile,
 	)
+	if supportsWebRAChallenge(os.Getenv("HRZ_VERSION")) {
+		challenge, err := issueWebRAChallenge(s.ctx, s.instances.Nginx.HttpUrl, ChallengeCentralizedProfile)
+		s.Require().NoError(err)
+		env = append(env,
+			"HORIZON_CHALLENGE_PROFILE="+ChallengeCentralizedProfile,
+			"HORIZON_ISSUED_CHALLENGE="+challenge,
+		)
+	}
 
 	t.Log("running acceptance tests under ./tests/ (go test -json)")
 	cmd := exec.CommandContext(s.ctx,
@@ -261,7 +282,9 @@ func (s *E2ESuite) tfCLIConfigPath() string {
 	return filepath.Join(s.binDir, ".terraformrc")
 }
 
-func (s *E2ESuite) runTftestFile(file string) {
+// runTftestFile runs one tftest file. extraEnv adds variables (TF_VAR_*) that
+// only this file needs.
+func (s *E2ESuite) runTftestFile(file string, extraEnv ...string) {
 	t := s.T()
 	base := strings.TrimSuffix(file, ".tftest.hcl")
 	junitPath := filepath.Join(s.reportsDir, "terraform-"+base+".xml")
@@ -277,7 +300,7 @@ func (s *E2ESuite) runTftestFile(file string) {
 		"-junit-xml="+junitPath,
 	)
 	cmd.Dir = s.tftestsDir
-	cmd.Env = s.tfEnv
+	cmd.Env = append(append([]string{}, s.tfEnv...), extraEnv...)
 	cmd.Stdout = &captured
 	cmd.Stderr = &captured
 	// Ignore the exit code — per-run failures are surfaced via JUnit below.

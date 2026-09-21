@@ -31,6 +31,10 @@ jobs:
           mongo-version: 7.0.12
         - horizon-version: 2.8.4
           mongo-version: 7.0.12
+        # Unreleased 2.11: runs the dev image with the 2.11 fixtures, which add WebRA Challenge mode.
+        - horizon-version: 2.11.0
+          horizon-image: quay.io/evertrust/horizon-dev:main
+          mongo-version: 8.0.4
 
     steps:
       - name: Configure Runs-On
@@ -60,6 +64,7 @@ jobs:
           DOCKER_AUTH_CONFIG: "{\"auths\": {\"https://quay.io/evertrust\": {\"username\": \"${{ env.QUAY_USERNAME }}\", \"password\": \"${{ env.QUAY_PASSWORD }}\"}}}"
           mongo_version: ${{ matrix.scenario.mongo-version }}
           hrz_version: ${{ matrix.scenario.horizon-version }}
+          hrz_image: ${{ matrix.scenario.horizon-image }}
         run: mise run e2e
 
       - name: Upload test report

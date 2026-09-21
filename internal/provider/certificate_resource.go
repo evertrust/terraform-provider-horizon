@@ -72,6 +72,9 @@ type certificateResourceModel struct {
 	RevokeOnDelete types.Bool  `tfsdk:"revoke_on_delete"`
 	RenewBefore    types.Int64 `tfsdk:"renew_before"`
 
+	Challenge        types.String `tfsdk:"challenge"`
+	RequestChallenge types.Bool   `tfsdk:"request_challenge"`
+
 	Csr               types.String `tfsdk:"csr"`
 	Pkcs12            types.String `tfsdk:"pkcs12"`
 	Password          types.String `tfsdk:"password"`
@@ -230,6 +233,18 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Description: "How many days before expiration the certificate should be renewed. When a `plan` or `apply` runs inside that window, the provider triggers a renewal on already existing enrollments. For decentralized enrollments, the existing `csr` is reused; if you want a brand-new key on each renewal, regenerate the CSR-producing resource (e.g. `tls_private_key`) so a fresh CSR reaches the renew call.",
 				Optional:    true,
 			},
+			"challenge": schema.StringAttribute{
+				MarkdownDescription: "One-time WebRA challenge issued on a profile in `Challenge` authorization mode (Horizon 2.11+), for example by an RA operator. " +
+					"When set, the provider enrolls the certificate by consuming this challenge. Horizon authorizes the enrollment with the challenge, so the provider credentials need no enroll permission on the profile. The provider still uses them to read, renew and revoke the certificate. " +
+					"Horizon takes `owner`, `team`, `contact_email` and `labels` from the challenge request. It uses `subject` and `sans` when the certificate template of the profile is empty. With a `csr`, they default to the identity found in the CSR. " +
+					"In centralized mode Horizon encrypts the returned PKCS#12 with the challenge, which the provider exposes as `password`. The provider uses this attribute when it creates the certificate. Conflicts with `request_challenge`.",
+				Optional:  true,
+				Sensitive: true,
+			},
+			"request_challenge": schema.BoolAttribute{
+				MarkdownDescription: "When `true`, the provider requests a one-time WebRA challenge with its own credentials and consumes it in the same apply. Use it to enroll on a profile in `Challenge` authorization mode (Horizon 2.11+) when nobody gave you a challenge. The credentials need the enroll and approve permissions on the profile. The provider uses this attribute when it creates the certificate. Conflicts with `challenge`.",
+				Optional:            true,
+			},
 			"csr": schema.StringAttribute{
 				Description: "A CSR (Certificate Signing Request) in PEM format. Providing this attribute will trigger a decentralized enrollment. Incompatible with `subject` and `sans`.",
 				Optional:    true,
@@ -326,6 +341,11 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
+	if usesChallenge(data) {
+		r.createWithChallenge(ctx, &data, resp)
+		return
+	}
+
 	template := models.NewWebRAEnrollRequestTemplateWithDefaults()
 
 	if !data.Csr.IsNull() {
@@ -377,64 +397,22 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		data.Password = types.StringNull()
 	} else {
 		// Set Subject
-		subject := make([]certificateSubjectModel, 0, len(data.Subject.Elements()))
-		resp.Diagnostics.Append(data.Subject.ElementsAs(ctx, &subject, false)...)
-		subjectElements := make([]models.IndexedDNElement, 0, len(subject))
-		for _, dnElement := range subject {
-			el := models.IndexedDNElement{Element: dnElement.Element.ValueString()}
-			el.SetValue(dnElement.Value.ValueString())
-			subjectElements = append(subjectElements, el)
-		}
-		template.SetSubject(subjectElements)
+		subject, subjectDiags := subjectElements(ctx, data)
+		resp.Diagnostics.Append(subjectDiags...)
+		template.SetSubject(subject)
 
 		// Set SANs
-		sans := make([]certificateSanModel, 0, len(data.Sans.Elements()))
-		resp.Diagnostics.Append(data.Sans.ElementsAs(ctx, &sans, false)...)
-		sanElements := make([]models.ListSANElement, 0, len(sans))
-		for _, sanElement := range sans {
-			values := make([]string, 0, len(sanElement.Value))
-			for _, value := range sanElement.Value {
-				values = append(values, value.ValueString())
-			}
-			el := models.ListSANElement{Value: values}
-			el.SetType(sanElement.Type.ValueString())
-			sanElements = append(sanElements, el)
-		}
-		template.SetSans(sanElements)
+		sans, sanDiags := sanElements(ctx, data)
+		resp.Diagnostics.Append(sanDiags...)
+		template.SetSans(sans)
 
 		if !data.KeyType.IsNull() {
 			template.SetKeyType(data.KeyType.ValueString())
 		}
 	}
 
-	// Set Labels
-	labels := make([]certificateLabelModel, 0, len(data.Labels.Elements()))
-	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
-	labelElements := make([]models.RequestLabelElement, 0, len(labels))
-	for _, label := range labels {
-		el := models.RequestLabelElement{Label: label.Label.ValueString()}
-		el.SetValue(label.Value.ValueString())
-		labelElements = append(labelElements, el)
-	}
-	template.SetLabels(labelElements)
-
-	if !data.Owner.IsNull() {
-		owner := models.NewCertificateOwnerElementWithDefaults()
-		owner.SetValue(data.Owner.ValueString())
-		template.SetOwner(*owner)
-	}
-
-	if !data.Team.IsNull() {
-		team := models.NewCertificateTeamElementWithDefaults()
-		team.SetValue(data.Team.ValueString())
-		template.SetTeam(*team)
-	}
-
-	if !data.ContactEmail.IsNull() {
-		contact := models.NewCertificateContactEmailElementWithDefaults()
-		contact.SetValue(data.ContactEmail.ValueString())
-		template.SetContactEmail(*contact)
-	}
+	// Set Labels, owner, team and contact email
+	resp.Diagnostics.Append(applyOwnership(ctx, template, data)...)
 
 	submit := models.NewWebRAEnrollRequestOnSubmit(
 		data.Profile.ValueString(),
@@ -476,28 +454,9 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	createTimeout, diags := data.Timeouts.Create(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
 
-	// If ThirdParties were defined, poll the certificate until all of them are in the 'thirdPartyData' field
-	if len(thirdParties) > 0 {
-		err = retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
-			certificateId := cert.Id
-			tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
-
-			polledResp, _, pErr := r.client.CertificateAPI.CertificateGetId(ctx, certificateId).Execute()
-			if pErr != nil {
-				return retry.RetryableError(fmt.Errorf("failed to poll certificate after enrollment: %s", pErr.Error()))
-			}
-			polled := polledResp.GetCertificate()
-			tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polled.ThirdPartyData))
-			// Check if the certificate has been added to all third parties
-			if !hasThirdParties(polled.ThirdPartyData, thirdParties) {
-				return retry.RetryableError(fmt.Errorf("failed to find all third party data after enrollment : %v", polled.ThirdPartyData))
-			}
-			return nil
-		})
-		if err != nil {
-			resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
-			return
-		}
+	if err = r.waitForThirdParties(ctx, cert.Id, thirdParties, createTimeout); err != nil {
+		resp.Diagnostics.AddError("Failed to verify third parties after enrollment", err.Error())
+		return
 	}
 
 	fillResourceFromCertificate(&data, cert)
@@ -543,7 +502,7 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 	tflog.Debug(ctx, fmt.Sprintf("Successfully got certificate %s", data.Id.ValueString()))
 
 	cert := certResp.GetCertificate()
-	fillResourceFromCertificate(&data, toCertificate(&cert))
+	fillResourceFromCertificate(&data, &cert)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -625,7 +584,7 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 			return
 		}
 		normalized := certResp.GetCertificate()
-		fillResourceFromCertificate(&data, toCertificate(&normalized))
+		fillResourceFromCertificate(&data, &normalized)
 		certID = data.Id.ValueString()
 
 		if renewed.Pkcs12.IsSet() && renewed.Pkcs12.Get() != nil && !data.Pkcs12WriteOnly.ValueBool() {
@@ -738,16 +697,19 @@ func (r CertificateResource) ValidateConfig(ctx context.Context, req resource.Va
 		return
 	}
 
+	resp.Diagnostics.Append(validateChallengeConfig(data)...)
+
 	if !data.Csr.IsNull() {
 		if !data.KeyType.IsNull() {
 			resp.Diagnostics.AddAttributeWarning(path.Root("key_type"), "key_type is ignored when csr is provided.", "")
 		}
 
-		if len(data.Subject.Elements()) > 0 {
+		// A challenge enrollment sends subject and sans next to the CSR.
+		if len(data.Subject.Elements()) > 0 && !usesChallenge(data) {
 			resp.Diagnostics.AddAttributeWarning(path.Root("subject"), "subject is ignored when csr is provided.", "")
 		}
 
-		if len(data.Sans.Elements()) > 0 {
+		if len(data.Sans.Elements()) > 0 && !usesChallenge(data) {
 			resp.Diagnostics.AddAttributeWarning(path.Root("sans"), "sans is ignored when csr is provided.", "")
 		}
 
@@ -884,44 +846,6 @@ func isInRenewalWindow(notAfter types.Int64, renewBeforeDays types.Int64, now ti
 	return now.After(renewalDate)
 }
 
-func toCertificate(r *models.CertificateResponse) *models.Certificate {
-	return &models.Certificate{
-		Id:                    r.Id,
-		Certificate:           r.Certificate,
-		ContactEmail:          r.ContactEmail,
-		CrlSynchronized:       r.CrlSynchronized,
-		DiscoveredTrusted:     r.DiscoveredTrusted,
-		DiscoveryData:         r.DiscoveryData,
-		DiscoveryInfo:         r.DiscoveryInfo,
-		Dn:                    r.Dn,
-		Escrowed:              r.Escrowed,
-		Extensions:            r.Extensions,
-		Grades:                r.Grades,
-		HolderId:              r.HolderId,
-		Issuer:                r.Issuer,
-		KeyType:               r.KeyType,
-		Labels:                r.Labels,
-		Metadata:              r.Metadata,
-		Module:                r.Module,
-		NotAfter:              r.NotAfter,
-		NotBefore:             r.NotBefore,
-		Owner:                 r.Owner,
-		Profile:               r.Profile,
-		PublicKeyThumbprint:   r.PublicKeyThumbprint,
-		RevocationDate:        r.RevocationDate,
-		RevocationReason:      r.RevocationReason,
-		Revoked:               r.Revoked,
-		SelfSigned:            r.SelfSigned,
-		Serial:                r.Serial,
-		SigningAlgorithm:      r.SigningAlgorithm,
-		SubjectAlternateNames: r.SubjectAlternateNames,
-		Team:                  r.Team,
-		ThirdPartyData:        r.ThirdPartyData,
-		Thumbprint:            r.Thumbprint,
-		TriggerResults:        r.TriggerResults,
-	}
-}
-
 // validateWriteOnlyFlags rejects unknown values for the write-only flags.
 func validateWriteOnlyFlags(data certificateResourceModel) diag.Diagnostics {
 	var diags diag.Diagnostics
@@ -940,6 +864,29 @@ func validateWriteOnlyFlags(data certificateResourceModel) diag.Diagnostics {
 		)
 	}
 	return diags
+}
+
+// waitForThirdParties polls the certificate until all the given third parties
+// are in its 'thirdPartyData' field. It returns right away when none is expected.
+func (r *CertificateResource) waitForThirdParties(ctx context.Context, certificateId string, thirdParties []string, timeout time.Duration) error {
+	if len(thirdParties) == 0 {
+		return nil
+	}
+	return retry.RetryContext(ctx, timeout, func() *retry.RetryError {
+		tflog.Info(ctx, fmt.Sprintf("Polling certificate %s for third parties: %v", certificateId, thirdParties))
+
+		polledResp, _, pErr := r.client.CertificateAPI.CertificateGetId(ctx, certificateId).Execute()
+		if pErr != nil {
+			return retry.RetryableError(fmt.Errorf("failed to poll certificate after enrollment: %s", pErr.Error()))
+		}
+		polled := polledResp.GetCertificate()
+		tflog.Info(ctx, fmt.Sprintf("Polling certificate, get third parties: %v", polled.ThirdPartyData))
+		// Check if the certificate has been added to all third parties
+		if !hasThirdParties(polled.ThirdPartyData, thirdParties) {
+			return retry.RetryableError(fmt.Errorf("failed to find all third party data after enrollment : %v", polled.ThirdPartyData))
+		}
+		return nil
+	})
 }
 
 func hasThirdParties(thirdPartyData []models.ThirdPartyItem, thirdParties []string) bool {

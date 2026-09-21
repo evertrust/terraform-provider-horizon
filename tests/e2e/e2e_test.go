@@ -197,6 +197,10 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 	if os.Getenv("PREVIEW") != "" {
 		registry = ""
 	}
+	horizonImage := registry + "horizon:" + horizonVersion
+	if image := os.Getenv("HRZ_IMAGE"); image != "" {
+		horizonImage = image
+	}
 
 	// Pre-assign a name to the Horizon container so that Nginx can reference it
 	// before Horizon is ready, allowing both to start in parallel.
@@ -204,7 +208,7 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 
 	horizonReq := testcontainers.ContainerRequest{
 		Name:         horizonContainerName,
-		Image:        registry + "horizon:" + horizonVersion,
+		Image:        horizonImage,
 		WaitingFor:   wait.ForLog("GRADING-START").WithStartupTimeout(3 * time.Minute),
 		Networks:     []string{networkName},
 		ExposedPorts: nil,

@@ -65,8 +65,8 @@ github.com/ebitengine/purego v0.10.0 h1:QIw4xfpWT6GWTzaW5XEKy3HXoqrJGx1ijYHzTF0/
 github.com/ebitengine/purego v0.10.0/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
-github.com/evertrust/horizon-go/v2 v2.10.3-0.20260917145356-013fc3283d32 h1:q6zNM/dP9R0Nbn+ReZOlsCOMdzxE5TF7cxd9HHs6gyw=
-github.com/evertrust/horizon-go/v2 v2.10.3-0.20260917145356-013fc3283d32/go.mod h1:htWZpHMCFuKixXKGjLHssEIb/2Sclw6V5BZdLZb4ODM=
+github.com/evertrust/horizon-go/v2 v2.10.3-0.20260921095320-337149dfc994 h1:9ChCvZXUMHomqgEL765QazW99OHZTIeAlPgjj9/aeT0=
+github.com/evertrust/horizon-go/v2 v2.10.3-0.20260921095320-337149dfc994/go.mod h1:htWZpHMCFuKixXKGjLHssEIb/2Sclw6V5BZdLZb4ODM=
 github.com/fatih/color v1.13.0/go.mod h1:kLAiJbzzSOZDVNGyDpeOxJ47H46qBXwg5ILebYFFOfk=
 github.com/fatih/color v1.18.0 h1:S8gINlzdQ840/4pfAwic/ZE0djQEH3wM94VfqLTZcOM=
 github.com/fatih/color v1.18.0/go.mod h1:4FelSpRwEGDpQ12mAdzqdOukCy4u8WUtOY6lkT/6HfU=
