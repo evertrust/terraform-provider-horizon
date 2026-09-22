@@ -35,6 +35,9 @@ jobs:
           mongo-version: 8.0.4
         - horizon-version: 2.10.7
           mongo-version: 8.0.4
+        - horizon-version: 2.11.0
+          horizon-image: quay.io/evertrust/horizon-dev:main
+          mongo-version: 8.0.4
 
     steps:
       - name: Configure Runs-On
@@ -64,6 +67,7 @@ jobs:
           DOCKER_AUTH_CONFIG: "{\"auths\": {\"https://quay.io/evertrust\": {\"username\": \"${{ env.QUAY_USERNAME }}\", \"password\": \"${{ env.QUAY_PASSWORD }}\"}}}"
           mongo_version: ${{ matrix.scenario.mongo-version }}
           hrz_version: ${{ matrix.scenario.horizon-version }}
+          hrz_image: ${{ matrix.scenario.horizon-image }}
         run: mise run e2e
 
       - name: Upload test report

@@ -11,4 +11,8 @@ const (
 
 	CentralizedProfile   = "webra-centralized"
 	DecentralizedProfile = "webra-decentralized"
+
+	ChallengeCentralizedProfile   = "webra-challenge-centralized"
+	ChallengeDecentralizedProfile = "webra-challenge-decentralized"
+	ChallengeTemplateProfile      = "webra-challenge-template"
 )

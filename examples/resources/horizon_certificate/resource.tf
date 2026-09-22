@@ -88,3 +88,55 @@ resource "horizon_certificate" "example_decentralized" {
     }
   ]
 }
+
+# Enrollment with a WebRA challenge (Horizon 2.11+)
+#
+# On a profile in Challenge authorization mode, Horizon authorizes the
+# enrollment with the one-time challenge, so the provider credentials need no
+# enroll permission on the profile. The provider still uses them to read, renew
+# and revoke the certificate. Horizon encrypts the PKCS#12 with the challenge,
+# which the provider exposes as `password`.
+variable "webra_challenge" {
+  type      = string
+  sensitive = true
+}
+
+resource "horizon_certificate" "example_challenge" {
+  profile   = "ChallengeProfile"
+  key_type  = "rsa-2048"
+  challenge = var.webra_challenge
+
+  # Horizon uses subject and sans when the certificate template of the profile
+  # is empty. With a defined template, it keeps the identity that was set when
+  # the challenge was issued.
+  subject = [
+    {
+      element = "cn.1"
+      type    = "CN"
+      value   = "challenge.example.com"
+    }
+  ]
+  sans = [
+    {
+      type  = "DNSNAME"
+      value = ["challenge.example.com"]
+    }
+  ]
+}
+
+# Same profile when nobody gave you a challenge. The provider requests one with
+# its own credentials, which need the enroll and approve permissions, and
+# consumes it in the same apply.
+resource "horizon_certificate" "example_request_challenge" {
+  profile           = "ChallengeProfile"
+  key_type          = "rsa-2048"
+  request_challenge = true
+
+  subject = [
+    {
+      element = "cn.1"
+      type    = "CN"
+      value   = "requested-challenge.example.com"
+    }
+  ]
+}
