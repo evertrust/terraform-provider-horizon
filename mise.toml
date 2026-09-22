@@ -94,7 +94,7 @@ run = '''
 gotestsum --format=pkgname \
   --junitfile=tests/reports/go-e2e.xml \
   --jsonfile=tests/reports/go-e2e.json \
-  -- -tags=e2e -timeout 30m ./internal/... ./tests/e2e/...
+  -- -tags=e2e -count=1 -timeout 30m ./internal/... ./tests/e2e/...
 '''
 
 [tasks."e2e:report"]

@@ -195,6 +195,10 @@ func (s *E2ESuite) TestTrustChain() {
 	s.runTftestFile("certificate_trust_chain.tftest.hcl")
 }
 
+func (s *E2ESuite) TestRetrievePkcs12() {
+	s.runTftestFile("retrieve_centralized_pkcs12.tftest.hcl")
+}
+
 func (s *E2ESuite) TestAcceptance() {
 	t := s.T()
 	acceptanceDir := filepath.Join(s.repoRoot, "tests")
