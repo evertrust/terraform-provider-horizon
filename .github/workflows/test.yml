@@ -31,6 +31,10 @@ jobs:
           mongo-version: 7.0.12
         - horizon-version: 2.8.4
           mongo-version: 7.0.12
+        - horizon-version: 2.9.5
+          mongo-version: 8.0.4
+        - horizon-version: 2.10.7
+          mongo-version: 8.0.4
 
     steps:
       - name: Configure Runs-On

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -8,7 +9,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -478,6 +481,113 @@ func TestValidateWriteOnlyFlags(t *testing.T) {
 				}
 				if !found {
 					t.Errorf("missing error for attribute %q in %v", want, diags)
+				}
+			}
+		})
+	}
+}
+
+func TestHasThirdParties(t *testing.T) {
+	synced := []models.ThirdPartyItem{{Connector: "aws"}, {Connector: "f5"}}
+
+	tests := []struct {
+		name     string
+		data     []models.ThirdPartyItem
+		expected []string
+		want     bool
+	}{
+		{name: "nothing expected", data: nil, expected: nil, want: true},
+		{name: "all expected connectors present", data: synced, expected: []string{"aws", "f5"}, want: true},
+		{name: "subset of the synced connectors", data: synced, expected: []string{"f5"}, want: true},
+		{name: "one expected connector missing", data: synced, expected: []string{"aws", "azure"}, want: false},
+		{name: "not synced anywhere yet", data: nil, expected: []string{"aws"}, want: false},
+		{name: "connector names are case sensitive", data: synced, expected: []string{"AWS"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasThirdParties(tt.data, tt.expected); got != tt.want {
+				t.Fatalf("hasThirdParties(%v, %v) = %v, want %v", tt.data, tt.expected, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCertificateResourceValidateConfig(t *testing.T) {
+	ctx := context.Background()
+	r := CertificateResource{}
+
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	schemaType := schemaResp.Schema.Type().TerraformType(ctx)
+	attrTypes := schemaType.(tftypes.Object).AttributeTypes
+
+	subjectType := attrTypes["subject"].(tftypes.Set)
+	subject := tftypes.NewValue(subjectType, []tftypes.Value{
+		tftypes.NewValue(subjectType.ElementType, map[string]tftypes.Value{
+			"element": str("cn.1"),
+			"type":    str("CN"),
+			"value":   str("example.org"),
+		}),
+	})
+	sansType := attrTypes["sans"].(tftypes.Set)
+	sans := tftypes.NewValue(sansType, []tftypes.Value{
+		tftypes.NewValue(sansType.ElementType, map[string]tftypes.Value{
+			"type":  str("DNSNAME"),
+			"value": tftypes.NewValue(sansType.ElementType.(tftypes.Object).AttributeTypes["value"], nil),
+		}),
+	})
+	centralized := map[string]tftypes.Value{
+		"profile":             str("profile"),
+		"key_type":            str("rsa-2048"),
+		"subject":             subject,
+		"sans":                sans,
+		"pkcs12_write_only":   tftypes.NewValue(tftypes.Bool, true),
+		"password_write_only": tftypes.NewValue(tftypes.Bool, true),
+	}
+
+	tests := []struct {
+		name         string
+		csr          bool
+		wantWarnings []string
+	}{
+		{name: "centralized attributes without csr", csr: false},
+		{
+			name: "centralized attributes are ignored with csr",
+			csr:  true,
+			wantWarnings: []string{
+				"key_type is ignored when csr is provided.",
+				"subject is ignored when csr is provided.",
+				"sans is ignored when csr is provided.",
+				"pkcs12_write_only has no effect when csr is provided (decentralized enrollment).",
+				"password_write_only has no effect when csr is provided (decentralized enrollment).",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			values := make(map[string]tftypes.Value, len(centralized)+1)
+			for k, v := range centralized {
+				values[k] = v
+			}
+			if tt.csr {
+				values["csr"] = str("-----BEGIN CERTIFICATE REQUEST-----")
+			}
+
+			req := resource.ValidateConfigRequest{
+				Config: tfsdk.Config{Raw: rawConfig(t, schemaType, values), Schema: schemaResp.Schema},
+			}
+			var resp resource.ValidateConfigResponse
+			r.ValidateConfig(ctx, req, &resp)
+
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("unexpected errors: %v", resp.Diagnostics.Errors())
+			}
+			if got := resp.Diagnostics.WarningsCount(); got != len(tt.wantWarnings) {
+				t.Fatalf("got %d warnings, want %d: %v", got, len(tt.wantWarnings), resp.Diagnostics)
+			}
+			for _, want := range tt.wantWarnings {
+				if !containsWarningSummary(resp.Diagnostics, want) {
+					t.Errorf("missing warning %q in %v", want, resp.Diagnostics)
 				}
 			}
 		})

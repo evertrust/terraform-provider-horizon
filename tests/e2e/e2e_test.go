@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,55 @@ func DownHorizonInstance(
 	return nil
 }
 
+func seedConfigFolder(root, horizonVersion string) (string, error) {
+	wantMajor, wantMinor, err := parseMajorMinor(horizonVersion)
+	if err != nil {
+		return "", fmt.Errorf("invalid HRZ_VERSION %q: %w", horizonVersion, err)
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+
+	best, bestMajor, bestMinor := "", -1, -1
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		major, minor, err := parseMajorMinor(e.Name())
+		if err != nil {
+			continue
+		}
+		if major > wantMajor || (major == wantMajor && minor > wantMinor) {
+			continue
+		}
+		if major > bestMajor || (major == bestMajor && minor > bestMinor) {
+			best, bestMajor, bestMinor = e.Name(), major, minor
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("no seed folder in %s for Horizon %s or any earlier version", root, horizonVersion)
+	}
+	return filepath.Join(root, best), nil
+}
+
+func parseMajorMinor(version string) (int, int, error) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("expected <major>.<minor>[.<patch>], got %q", version)
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, err
+	}
+	return major, minor, nil
+}
+
 func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances, error) {
 	networkName := os.Getenv("DOCKER_NETWORK")
 	if networkName == "" {
@@ -125,9 +175,10 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 	if err != nil {
 		return nil, err
 	}
-	horizonMajor := strings.Join(strings.Split(horizonVersion, ".")[:2], ".")
-
-	configFolder := filepath.Join(cwd, "resources", "horizon_conf", horizonMajor)
+	configFolder, err := seedConfigFolder(filepath.Join(cwd, "resources", "horizon_conf"), horizonVersion)
+	if err != nil {
+		return nil, err
+	}
 
 	dbPath := filepath.Join(configFolder, "db")
 	t.Logf("Loading DB from %s", dbPath)

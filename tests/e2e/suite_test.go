@@ -208,6 +208,10 @@ func (s *E2ESuite) TestChallenge() {
 	s.runTftestFile("certificate_challenge.tftest.hcl", "TF_VAR_issued_challenge="+challenge)
 }
 
+func (s *E2ESuite) TestRetrievePkcs12() {
+	s.runTftestFile("retrieve_centralized_pkcs12.tftest.hcl")
+}
+
 func (s *E2ESuite) TestAcceptance() {
 	t := s.T()
 	acceptanceDir := filepath.Join(s.repoRoot, "tests")
