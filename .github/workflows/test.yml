@@ -36,7 +36,6 @@ jobs:
         - horizon-version: 2.10.7
           mongo-version: 8.0.4
         - horizon-version: 2.11.0
-          horizon-image: quay.io/evertrust/horizon-dev:main
           mongo-version: 8.0.4
 
     steps:
