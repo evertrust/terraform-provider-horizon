@@ -86,7 +86,7 @@ func enrollGet(id, certID, pkcs12, password string, status models.RequestStatus)
 	r.Id = id
 	r.Workflow = workflowEnroll
 	r.Status = status
-	r.HolderId = testHolderID
+	r.SetHolderId(testHolderID)
 	if certID != "" {
 		r.SetCertificate(certificateWithID(certID))
 	}
@@ -105,7 +105,7 @@ func recoverGet(id, certID, pkcs12, password string, status models.RequestStatus
 	r.Id = id
 	r.Workflow = workflowRecover
 	r.Status = status
-	r.HolderId = testHolderID
+	r.SetHolderId(testHolderID)
 	if certID != "" {
 		r.SetCertificate(certificateWithID(certID))
 	}
@@ -124,7 +124,7 @@ func renewGet(id, certID, pkcs12, password string, status models.RequestStatus) 
 	r.Id = id
 	r.Workflow = workflowRenew
 	r.Status = status
-	r.HolderId = testHolderID
+	r.SetHolderId(testHolderID)
 	if certID != "" {
 		r.SetCertificate(certificateWithID(certID))
 	}
@@ -143,7 +143,7 @@ func recoverSubmit(id, certID, pkcs12, password string, status models.RequestSta
 	r.Id = id
 	r.Workflow = workflowRecover
 	r.Status = status
-	r.HolderId = testHolderID
+	r.SetHolderId(testHolderID)
 	if certID != "" {
 		r.SetCertificate(certificateWithID(certID))
 	}
