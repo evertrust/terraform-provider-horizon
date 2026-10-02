@@ -140,8 +140,10 @@ resource "horizon_certificate" "example_challenge" {
 }
 
 # Same profile when nobody gave you a challenge. The provider requests one with
-# its own credentials, which need the enroll and approve permissions, and
-# consumes it in the same apply.
+# its own credentials and consumes it in the same apply. Horizon must approve
+# the request on the spot, so the credentials need the request enroll and
+# approve permissions on the profile. Without them, have an operator issue the
+# challenge and pass it through `challenge` instead.
 resource "horizon_certificate" "example_request_challenge" {
   profile           = "ChallengeProfile"
   key_type          = "rsa-2048"
@@ -178,7 +180,7 @@ resource "horizon_certificate" "example_request_challenge" {
 - `pkcs12` (String, Sensitive) Base64-encoded PKCS12 file containing the certificate and the private key. Provided when using centralized enrollment.
 - `pkcs12_write_only` (Boolean) When true, the PKCS12 value returned/generated for centralized enrollment is not persisted to Terraform state. Only meaningful for centralized enrollment. Sensitive material will not be recoverable from state after apply.
 - `renew_before` (Number) How many days before expiration the certificate should be renewed. When a `plan` or `apply` runs inside that window, the provider triggers a renewal on already existing enrollments. For decentralized enrollments, the existing `csr` is reused; if you want a brand-new key on each renewal, regenerate the CSR-producing resource (e.g. `tls_private_key`) so a fresh CSR reaches the renew call.
-- `request_challenge` (Boolean) When `true`, the provider requests a one-time WebRA challenge with its own credentials and consumes it in the same apply. Use it to enroll on a profile in `Challenge` authorization mode (Horizon 2.11+) when nobody gave you a challenge. The credentials need the enroll and approve permissions on the profile. The provider uses this attribute when it creates the certificate. Conflicts with `challenge`.
+- `request_challenge` (Boolean) When `true`, the provider requests a one-time WebRA challenge with its own credentials and consumes it in the same apply. Use it to enroll on a profile in `Challenge` authorization mode (Horizon 2.11+) when nobody gave you a challenge. Horizon must approve the request on the spot, so the credentials need the request enroll and approve permissions on the profile. The provider uses this attribute when it creates the certificate. Conflicts with `challenge`.
 - `revoke_on_delete` (Boolean) Whether to revoke certificate when it is removed from the Terraform state or not.
 - `sans` (Attributes Set) Subject alternative names of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--sans))
 - `subject` (Attributes Set) Subject elements of the certificate. This is ignored when csr is provided. (see [below for nested schema](#nestedatt--subject))

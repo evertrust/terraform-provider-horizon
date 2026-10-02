@@ -254,14 +254,6 @@ func challengeSubmitTemplate(data certificateResourceModel, subject []models.Ind
 	return template
 }
 
-func templateDefinesIdentity(template *models.WebRAEnrollRequestOnTemplateResponse) bool {
-	if template == nil {
-		return false
-	}
-	t := template.Template
-	return len(t.Subject) > 0 || len(t.Sans) > 0 || len(t.Extensions) > 0
-}
-
 type issuedChallenge struct {
 	requestID string
 	challenge string
@@ -304,26 +296,11 @@ func extractIssuedChallenge(resp *models.RequestSubmit201Response) (*issuedChall
 	return &issuedChallenge{requestID: enrollResp.Id, challenge: password.GetValue()}, diags
 }
 
-// requestChallenge issues a challenge with the provider credentials.
-func (r *CertificateResource) requestChallenge(ctx context.Context, data certificateResourceModel, subject []models.IndexedDNElement, sans []models.ListSANElement) (*issuedChallenge, diag.Diagnostics) {
-	var diags diag.Diagnostics
-
-	onTemplate := models.NewWebRAEnrollRequestOnTemplate(webRAModule, workflowEnroll)
-	onTemplate.SetProfile(data.Profile.ValueString())
-	tmplResp, _, err := r.client.RequestAPI.RequestTemplate(ctx).
-		RequestTemplateRequest(models.WebRAEnrollRequestOnTemplateAsRequestTemplateRequest(onTemplate)).
-		Execute()
-	if err != nil {
-		diags.AddError("Failed to get enroll template", err.Error())
-		return nil, diags
-	}
-
-	template := models.NewWebRAEnrollRequestTemplateWithDefaults()
-	if templateDefinesIdentity(tmplResp.WebRAEnrollRequestOnTemplateResponse) {
-		template.SetSubject(subject)
-		template.SetSans(sans)
-	}
-	diags.Append(applyOwnership(ctx, template, data)...)
+// requestChallenge issues a challenge with the provider credentials. The
+// request is a plain WebRA enrollment: it carries the same template as an
+// enrollment on a profile that is not in Challenge mode.
+func (r *CertificateResource) requestChallenge(ctx context.Context, data certificateResourceModel) (*issuedChallenge, diag.Diagnostics) {
+	template, diags := r.enrollTemplate(ctx, data)
 	if diags.HasError() {
 		return nil, diags
 	}
@@ -371,7 +348,7 @@ func (r *CertificateResource) createWithChallenge(ctx context.Context, data *cer
 	challenge := data.Challenge.ValueString()
 	issuedRequestID := ""
 	if data.Challenge.IsNull() {
-		issued, issueDiags := r.requestChallenge(ctx, *data, subject, sans)
+		issued, issueDiags := r.requestChallenge(ctx, *data)
 		resp.Diagnostics.Append(issueDiags...)
 		if resp.Diagnostics.HasError() {
 			return

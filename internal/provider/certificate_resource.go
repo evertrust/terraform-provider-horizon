@@ -242,7 +242,7 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 				Sensitive: true,
 			},
 			"request_challenge": schema.BoolAttribute{
-				MarkdownDescription: "When `true`, the provider requests a one-time WebRA challenge with its own credentials and consumes it in the same apply. Use it to enroll on a profile in `Challenge` authorization mode (Horizon 2.11+) when nobody gave you a challenge. The credentials need the enroll and approve permissions on the profile. The provider uses this attribute when it creates the certificate. Conflicts with `challenge`.",
+				MarkdownDescription: "When `true`, the provider requests a one-time WebRA challenge with its own credentials and consumes it in the same apply. Use it to enroll on a profile in `Challenge` authorization mode (Horizon 2.11+) when nobody gave you a challenge. Horizon must approve the request on the spot, so the credentials need the request enroll and approve permissions on the profile. The provider uses this attribute when it creates the certificate. Conflicts with `challenge`.",
 				Optional:            true,
 			},
 			"csr": schema.StringAttribute{
@@ -326,26 +326,11 @@ func (r *CertificateResource) Configure(ctx context.Context, req resource.Config
 	r.client = client
 }
 
-func (r *CertificateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data certificateResourceModel
-
-	// Read Terraform plan data into the model
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	resp.Diagnostics.Append(validateWriteOnlyFlags(data)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if usesChallenge(data) {
-		r.createWithChallenge(ctx, &data, resp)
-		return
-	}
-
+// enrollTemplate builds the WebRA enroll template of an enrollment: the CSR or
+// key type, the identity and the ownership of the certificate. A challenge
+// request sends the same template as a plain enrollment.
+func (r *CertificateResource) enrollTemplate(ctx context.Context, data certificateResourceModel) (*models.WebRAEnrollRequestTemplate, diag.Diagnostics) {
+	var diags diag.Diagnostics
 	template := models.NewWebRAEnrollRequestTemplateWithDefaults()
 
 	if !data.Csr.IsNull() {
@@ -358,13 +343,13 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 			RequestTemplateRequest(models.WebRAEnrollRequestOnTemplateAsRequestTemplateRequest(onTemplate)).
 			Execute()
 		if err != nil {
-			resp.Diagnostics.AddError("Failed to get enroll template", err.Error())
-			return
+			diags.AddError("Failed to get enroll template", err.Error())
+			return nil, diags
 		}
 		onTemplateResp := tmplResp.WebRAEnrollRequestOnTemplateResponse
 		if onTemplateResp == nil {
-			resp.Diagnostics.AddError("Unexpected template response type", "Expected WebRAEnrollRequestOnTemplateResponse")
-			return
+			diags.AddError("Unexpected template response type", "Expected WebRAEnrollRequestOnTemplateResponse")
+			return nil, diags
 		}
 
 		template.SetCsr(data.Csr.ValueString())
@@ -391,19 +376,15 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 			}
 			template.SetSans(sanElements)
 		}
-
-		// This is a decentralized enrollment, so we'll ignore the PKCS12 and password parameters.
-		data.Pkcs12 = types.StringNull()
-		data.Password = types.StringNull()
 	} else {
 		// Set Subject
 		subject, subjectDiags := subjectElements(ctx, data)
-		resp.Diagnostics.Append(subjectDiags...)
+		diags.Append(subjectDiags...)
 		template.SetSubject(subject)
 
 		// Set SANs
 		sans, sanDiags := sanElements(ctx, data)
-		resp.Diagnostics.Append(sanDiags...)
+		diags.Append(sanDiags...)
 		template.SetSans(sans)
 
 		if !data.KeyType.IsNull() {
@@ -412,7 +393,41 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	// Set Labels, owner, team and contact email
-	resp.Diagnostics.Append(applyOwnership(ctx, template, data)...)
+	diags.Append(applyOwnership(ctx, template, data)...)
+	return template, diags
+}
+
+func (r *CertificateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data certificateResourceModel
+
+	// Read Terraform plan data into the model
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(validateWriteOnlyFlags(data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if usesChallenge(data) {
+		r.createWithChallenge(ctx, &data, resp)
+		return
+	}
+
+	template, templateDiags := r.enrollTemplate(ctx, data)
+	resp.Diagnostics.Append(templateDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !data.Csr.IsNull() {
+		// This is a decentralized enrollment, so we'll ignore the PKCS12 and password parameters.
+		data.Pkcs12 = types.StringNull()
+		data.Password = types.StringNull()
+	}
 
 	submit := models.NewWebRAEnrollRequestOnSubmit(
 		data.Profile.ValueString(),

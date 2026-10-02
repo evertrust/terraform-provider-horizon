@@ -125,8 +125,7 @@ resource "horizon_certificate" "example_challenge" {
 }
 
 # Same profile when nobody gave you a challenge. The provider requests one with
-# its own credentials, which need the enroll and approve permissions, and
-# consumes it in the same apply.
+# its own credentials and consumes it in the same apply.
 resource "horizon_certificate" "example_request_challenge" {
   profile           = "ChallengeProfile"
   key_type          = "rsa-2048"

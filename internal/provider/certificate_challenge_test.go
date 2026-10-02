@@ -370,21 +370,6 @@ func TestChallengeSubmitTemplate(t *testing.T) {
 	})
 }
 
-func TestTemplateDefinesIdentity(t *testing.T) {
-	if templateDefinesIdentity(nil) {
-		t.Fatal("nil template must not define an identity")
-	}
-	empty := &models.WebRAEnrollRequestOnTemplateResponse{}
-	if templateDefinesIdentity(empty) {
-		t.Fatal("empty template must not define an identity")
-	}
-	withSubject := &models.WebRAEnrollRequestOnTemplateResponse{}
-	withSubject.Template.Subject = []models.IndexedDNElementResponse{{Element: "cn.1"}}
-	if !templateDefinesIdentity(withSubject) {
-		t.Fatal("a template with a subject defines an identity")
-	}
-}
-
 func submitResponse(status models.RequestStatus, challenge string, cert *models.Certificate) *models.RequestSubmit201Response {
 	r := &models.WebRAEnrollRequestOnSubmitResponse{Id: "req-1", Status: status}
 	if challenge != "" {
