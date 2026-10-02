@@ -1,6 +1,6 @@
 module github.com/evertrust/terraform-provider-horizon
 
-go 1.26.8
+go 1.27.0
 
 require (
 	github.com/evertrust/horizon-go/v2 v2.11.0
