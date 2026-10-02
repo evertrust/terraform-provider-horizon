@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/evertrust/horizon-go/v2/models"
+	"github.com/evertrust/horizon-go/v2/utils"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -368,6 +369,36 @@ func TestChallengeSubmitTemplate(t *testing.T) {
 			t.Fatalf("keyType = %v, want nil", *tmpl.KeyType)
 		}
 	})
+}
+
+func TestTemplateDefinesIdentity(t *testing.T) {
+	editable := func(v bool) utils.NullableBool { return *utils.NewNullableBool(&v) }
+
+	if templateDefinesIdentity(nil) {
+		t.Fatal("nil template must not define an identity")
+	}
+	if templateDefinesIdentity(&models.WebRAEnrollRequestOnTemplateResponse{}) {
+		t.Fatal("empty template must not define an identity")
+	}
+
+	fixed := &models.WebRAEnrollRequestOnTemplateResponse{}
+	fixed.Template.Subject = []models.IndexedDNElementResponse{{Element: "cn.1", Editable: editable(false)}}
+	fixed.Template.Sans = []models.ListSANElementResponse{{Editable: editable(false)}}
+	if templateDefinesIdentity(fixed) {
+		t.Fatal("non-editable elements must not define an identity")
+	}
+
+	withSubject := &models.WebRAEnrollRequestOnTemplateResponse{}
+	withSubject.Template.Subject = []models.IndexedDNElementResponse{{Element: "cn.1", Editable: editable(true)}}
+	if !templateDefinesIdentity(withSubject) {
+		t.Fatal("an editable subject element defines an identity")
+	}
+
+	withSan := &models.WebRAEnrollRequestOnTemplateResponse{}
+	withSan.Template.Sans = []models.ListSANElementResponse{{Editable: editable(true)}}
+	if !templateDefinesIdentity(withSan) {
+		t.Fatal("an editable SAN element defines an identity")
+	}
 }
 
 func submitResponse(status models.RequestStatus, challenge string, cert *models.Certificate) *models.RequestSubmit201Response {

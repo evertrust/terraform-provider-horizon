@@ -254,9 +254,27 @@ func challengeSubmitTemplate(data certificateResourceModel, subject []models.Ind
 	return template
 }
 
+func templateDefinesIdentity(template *models.WebRAEnrollRequestOnTemplateResponse) bool {
+	if template == nil {
+		return false
+	}
+	for _, e := range template.Template.Subject {
+		if editable := e.Editable.Get(); editable != nil && *editable {
+			return true
+		}
+	}
+	for _, e := range template.Template.Sans {
+		if editable := e.Editable.Get(); editable != nil && *editable {
+			return true
+		}
+	}
+	return false
+}
+
 type issuedChallenge struct {
-	requestID string
-	challenge string
+	requestID         string
+	challenge         string
+	identityInRequest bool
 }
 
 func extractIssuedChallenge(resp *models.RequestSubmit201Response) (*issuedChallenge, diag.Diagnostics) {
@@ -298,11 +316,28 @@ func extractIssuedChallenge(resp *models.RequestSubmit201Response) (*issuedChall
 
 // requestChallenge issues a challenge with the provider credentials. The
 // request is a plain WebRA enrollment: it carries the same template as an
-// enrollment on a profile that is not in Challenge mode.
+// enrollment on a profile that is not in Challenge mode, except that the
+// identity is left out when the profile template does not let the requester
+// set it. Horizon then takes it when the challenge is consumed.
 func (r *CertificateResource) requestChallenge(ctx context.Context, data certificateResourceModel) (*issuedChallenge, diag.Diagnostics) {
 	template, diags := r.enrollTemplate(ctx, data)
 	if diags.HasError() {
 		return nil, diags
+	}
+
+	onTemplate := models.NewWebRAEnrollRequestOnTemplate(webRAModule, workflowEnroll)
+	onTemplate.SetProfile(data.Profile.ValueString())
+	tmplResp, _, err := r.client.RequestAPI.RequestTemplate(ctx).
+		RequestTemplateRequest(models.WebRAEnrollRequestOnTemplateAsRequestTemplateRequest(onTemplate)).
+		Execute()
+	if err != nil {
+		diags.AddError("Failed to get enroll template", err.Error())
+		return nil, diags
+	}
+	identityInRequest := templateDefinesIdentity(tmplResp.WebRAEnrollRequestOnTemplateResponse)
+	if !identityInRequest {
+		template.Subject = nil
+		template.Sans = nil
 	}
 
 	submit := models.NewWebRAEnrollRequestOnSubmit(data.Profile.ValueString(), webRAModule, *template, workflowEnroll)
@@ -316,6 +351,9 @@ func (r *CertificateResource) requestChallenge(ctx context.Context, data certifi
 
 	issued, issueDiags := extractIssuedChallenge(submitResp)
 	diags.Append(issueDiags...)
+	if issued != nil {
+		issued.identityInRequest = identityInRequest
+	}
 	return issued, diags
 }
 
@@ -355,6 +393,11 @@ func (r *CertificateResource) createWithChallenge(ctx context.Context, data *cer
 		}
 		challenge = issued.challenge
 		issuedRequestID = issued.requestID
+		if issued.identityInRequest {
+			// The profile template fixed the identity on the request; the
+			// challenge endpoint rejects subject and sans in that case.
+			subject, sans = nil, nil
+		}
 		tflog.Info(ctx, fmt.Sprintf("Issued WebRA challenge request %s on profile %s", issued.requestID, data.Profile.ValueString()))
 	}
 	if challenge == "" {
