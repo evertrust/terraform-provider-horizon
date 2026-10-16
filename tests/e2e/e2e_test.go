@@ -244,11 +244,11 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 		horizonEnv[varName] = varValue
 	}
 
-	host := os.Getenv("REGISTRY_HOST")
-	if host == "" {
-		host = "harbor.infra.evertrust.io"
+	registry := os.Getenv("REGISTRY_URL")
+	if registry == "" {
+		registry = "harbor.infra.evertrust.io/library"
 	}
-	registry := host + "/library/"
+	registry += "/"
 	if os.Getenv("PREVIEW") != "" {
 		registry = ""
 	}

@@ -46,10 +46,16 @@ jobs:
           method: ${{ vars.VAULT_AUTH_METHOD }}
           path: ${{ vars.VAULT_AUTH_PATH }}
           secrets: |
-            ci/data/repositories/evertrust/terraform-provider-horizon/registry host | REGISTRY_HOST ;
+            ci/data/repositories/evertrust/terraform-provider-horizon/registry url | REGISTRY_URL ;
             ci/data/repositories/evertrust/terraform-provider-horizon/registry username | REGISTRY_USERNAME;
             ci/data/repositories/evertrust/terraform-provider-horizon/registry password | REGISTRY_PASSWORD;
             ci/data/repositories/evertrust/terraform-provider-horizon/license license | HRZ_LICENSE;
+
+      - name: Resolve registry host
+        shell: bash
+        run: |
+          printf '::add-mask::%s\n' "${REGISTRY_URL%%/*}"
+          printf 'REGISTRY_HOST=%s\n' "${REGISTRY_URL%%/*}" >> "$GITHUB_ENV"
 
       - name: Checkout code
         uses: actions/checkout@v5
