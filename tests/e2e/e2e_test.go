@@ -244,7 +244,7 @@ func UpHorizonInstance(ctx context.Context, t *testing.T) (*HorizonTestInstances
 		horizonEnv[varName] = varValue
 	}
 
-	registry := "quay.io/evertrust/"
+	registry := "harbor.infra.evertrust.io/library/"
 	if os.Getenv("PREVIEW") != "" {
 		registry = ""
 	}
