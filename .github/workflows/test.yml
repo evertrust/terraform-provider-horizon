@@ -35,6 +35,8 @@ jobs:
           mongo-version: 8.0.4
         - horizon-version: 2.10.7
           mongo-version: 8.0.4
+        - horizon-version: 2.11.0
+          mongo-version: 8.0.4
 
     steps:
       - name: Configure Runs-On
@@ -72,6 +74,7 @@ jobs:
           LICENSE: ${{ env.HRZ_LICENSE }}
           mongo_version: ${{ matrix.scenario.mongo-version }}
           hrz_version: ${{ matrix.scenario.horizon-version }}
+          hrz_image: ${{ matrix.scenario.horizon-image }}
         run: mise run e2e
 
       - name: Upload test report

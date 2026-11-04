@@ -557,7 +557,7 @@ func materialFromEnrollGet(r *models.WebRAEnrollRequestOnGetResponse) pkcs12Mate
 		RequestID:       r.GetId(),
 		RequestWorkflow: r.Workflow,
 		RequestStatus:   string(r.GetStatus()),
-		HolderID:        r.HolderId,
+		HolderID:        r.GetHolderId(),
 	}
 	if r.HasCertificate() {
 		cert := r.GetCertificate()
@@ -579,7 +579,7 @@ func materialFromRenewApprove(r *models.WebRARenewRequestOnApproveResponse) pkcs
 		RequestID:       r.GetId(),
 		RequestWorkflow: r.Workflow,
 		RequestStatus:   string(r.GetStatus()),
-		HolderID:        r.HolderId,
+		HolderID:        r.GetHolderId(),
 	}
 	if r.HasCertificate() {
 		cert := r.GetCertificate()
@@ -601,7 +601,7 @@ func materialFromRecoverApprove(r *models.WebRARecoverRequestOnApproveResponse) 
 		RequestID:       r.GetId(),
 		RequestWorkflow: r.Workflow,
 		RequestStatus:   string(r.GetStatus()),
-		HolderID:        r.HolderId,
+		HolderID:        r.GetHolderId(),
 	}
 	if r.HasCertificate() {
 		cert := r.GetCertificate()
@@ -623,7 +623,7 @@ func materialFromRecoverSubmit(r *models.WebRARecoverRequestOnSubmitResponse) pk
 		RequestID:       r.GetId(),
 		RequestWorkflow: r.Workflow,
 		RequestStatus:   string(r.GetStatus()),
-		HolderID:        r.HolderId,
+		HolderID:        r.GetHolderId(),
 	}
 	if r.HasCertificate() {
 		cert := r.GetCertificate()

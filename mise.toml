@@ -18,6 +18,9 @@ LICENSE = "{{ env.LICENSE | default(value='') }}"
 MONGO_VERSION = "{{ env.mongo_version | default(value='') }}"
 HRZ_VERSION = "{{ env.hrz_version | default(value='') }}"
 PREVIEW = "{{ env.preview | default(value='') }}"
+# Runs an unreleased Horizon build such as quay.io/evertrust/horizon-dev:main.
+# hrz_version still selects the fixtures under tests/e2e/resources/horizon_conf.
+HRZ_IMAGE = "{{ env.hrz_image | default(value='') }}"
 
 [tasks.build]
 description = "Build the provider binary"

@@ -1,0 +1,12 @@
+[{
+  "_id": {
+    "$oid": "64d3ae212a00002e0017597a"
+  },
+  "name": "integrated-clientserver",
+  "type": "integrated",
+  "certType": "serverclient",
+  "signAlg": "SHA256",
+  "cryptoType": "legacy",
+  "crtLifetime": "365 days",
+  "checkPop": true
+}]

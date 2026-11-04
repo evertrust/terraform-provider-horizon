@@ -1,0 +1,8 @@
+[{
+  "_id": {
+    "$oid": "64d3a6b72a0000340017594d"
+  },
+  "identifier": "administrator",
+  "name": "Horizon Administrator",
+  "hash": "$6$Vzib4IPtkfOtci.r$t5qrQjNUFaW5PwJEyPaFRFHC9H2qApSFxk29wuc9M/iWY3p2ODVKhJJO2AGHRkuqarEw0Hcsf9ClRMvkxykVO."
+}]
