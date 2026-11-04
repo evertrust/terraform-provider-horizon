@@ -31,10 +31,10 @@ provider "horizon" {
 
 # With certificate authentication
 provider "horizon" {
-  alias    = "with-cert"
-  endpoint = "https://horizon.company.com"
-  cert     = "----BEGIN CERTIFICATE-----\n...\n----END CERTIFICATE-----\n"
-  key      = "----BEGIN RSA PRIVATE KEY-----\n...\n----END RSA PRIVATE KEY-----"
+  alias           = "with-cert"
+  endpoint        = "https://horizon.company.com"
+  client_cert_pem = "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
+  client_key_pem  = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 }
 ```
 
