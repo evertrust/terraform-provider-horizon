@@ -1,25 +1,45 @@
-name: Trivy scan
+name: Scheduled SCA scan
 
 on:
   schedule:
     - cron: "0 8 * * *"
   workflow_dispatch:
 
-jobs:
-  trivy:
-    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
-    permissions:
-      contents: write
-      id-token: write
+permissions:
+  contents: read
+  id-token: write
 
+concurrency:
+  group: dependency-scan-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  discover-releases:
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - uses: runs-on/action@v2
+
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - uses: runs-on/action@v2
+      - name: Set up mise
+        uses: jdx/mise-action@v3
 
-      - name: Setup Trivy
-        uses: aquasecurity/setup-trivy@v0.2.3
+      - name: Determine latest release of each maintained version
+        id: set-matrix
+        run: echo "matrix=$(mise run --quiet scan:targets)" >> "$GITHUB_OUTPUT"
+
+  dependency-scan:
+    needs: discover-releases
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-releases.outputs.matrix) }}
+
+    steps:
+      - uses: runs-on/action@v2
 
       - name: Fetch secrets via Vault
         uses: hashicorp/vault-action@v2
@@ -28,33 +48,46 @@ jobs:
           method: ${{ vars.VAULT_AUTH_METHOD }}
           path: ${{ vars.VAULT_AUTH_PATH }}
           secrets: |
-            ci/data/repositories/evertrust/terraform-provider-horizon/linear  LINEAR_API_KEY   |   LINEAR_API_KEY  ;
-            ci/data/repositories/evertrust/terraform-provider-horizon/linear  LINEAR_LABEL_IDS    |   LINEAR_LABEL_IDS   ;
-            ci/data/repositories/evertrust/terraform-provider-horizon/linear  LINEAR_TEAM_ID   |   LINEAR_TEAM_ID  ;
-            ci/data/repositories/evertrust/terraform-provider-horizon/linear  LINEAR_TODO_STATUS   |   LINEAR_TODO_STATUS  ;
+            ci/data/global/linear CI-SCAN-ACTIONS_LINEAR-APP-CLIENT-ID | LINEAR_OAUTH_CLIENT_ID ;
+            ci/data/global/linear CI-SCAN-ACTIONS_LINEAR-CLIENT-SECRET | LINEAR_OAUTH_CLIENT_SECRET ;
+            ci/data/global/linear LINEAR_VULNERABILITIES_TEAM | LINEAR_TEAM_ID ;
+            ci/data/global/linear LINEAR_VULNERABILITIES_TEAM_TRIAGE_STATUS_ID | LINEAR_TODO_STATUS ;
+            ci/data/repositories/evertrust/terraform-provider-horizon/linear LINEAR_LABEL_NAMES | LINEAR_LABEL_NAMES ;
 
-      - name: Run Trivy scan
-        run: trivy fs --severity CRITICAL,HIGH --format json --output trivy-horizon-tf-provider.json --vex repo .
+      - name: Download released binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          gh release download "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "terraform-provider-horizon_${VERSION}_linux_amd64.zip"
+          unzip -o "terraform-provider-horizon_${VERSION}_linux_amd64.zip" "terraform-provider-horizon_v$VERSION"
 
-      - name: Produce Sbom
-        run: trivy fs --format spdx --output trivy-horizon-tf-provider.spdx --vex repo .
-
-      - name: Upload Trivy artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: Run SCA scan
+        uses: evertrust/sca-scan-action@v1
         with:
-          name: trivy-horizon-tf-provider
-          path: |
-            trivy-horizon-tf-provider.json
-            trivy-horizon-tf-provider.spdx
-
-      - name: Upload Vulnerabilities to Linear
-        if: always()
-        uses: evertrust/trivy-to-linear/.github/actions/trivy-to-linear@dcf968652d5508d7439b78717f514bdb8bb907bf
-        with:
-          linear-api-key: ${{ env.LINEAR_API_KEY }}
+          source: file:./terraform-provider-horizon_v${{ matrix.version }}
+          artifact-name: terraform-provider-horizon-${{ matrix.version }}
+          sbom-path: reports/sbom.syft.json
+          grype-report-path: reports/vuln-scan-results.json
+          fail-on: high
+          ticket-on: high
+          create-linear-tickets: "true"
+          linear-oauth-client-id: ${{ env.LINEAR_OAUTH_CLIENT_ID }}
+          linear-oauth-client-secret: ${{ env.LINEAR_OAUTH_CLIENT_SECRET }}
           linear-team-id: ${{ env.LINEAR_TEAM_ID }}
           linear-todo-status: ${{ env.LINEAR_TODO_STATUS }}
-          linear-label-ids: ${{ env.LINEAR_LABEL_IDS }}
-          git-branch: ${{ github.ref_name }}
-          trivy-report-path: trivy-horizon-tf-provider.json
+          linear-label-names: ${{ env.LINEAR_LABEL_NAMES }}
+          git-branch: ${{ matrix.minor }}
+
+      - name: Upload SCA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-scan-${{ matrix.minor }}
+          path: |
+            reports/sbom.syft.json
+            reports/vuln-scan-results.json
+          if-no-files-found: error
+          retention-days: 7

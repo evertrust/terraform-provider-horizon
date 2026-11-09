@@ -3,6 +3,7 @@ go = "1.25"
 terraform = "1.15.1"
 gotestsum = "1.13.0"
 "go:github.com/evertrust/go-test-report" = "v1.0.1"
+"aqua:jqlang/jq" = "1.8.1"
 
 [tools."http:mongodb-database-tools"]
 version = "100.10.0"
@@ -18,6 +19,10 @@ LICENSE = "{{ env.LICENSE | default(value='') }}"
 MONGO_VERSION = "{{ env.mongo_version | default(value='') }}"
 HRZ_VERSION = "{{ env.hrz_version | default(value='') }}"
 PREVIEW = "{{ env.preview | default(value='') }}"
+# Minor versions below this one are not scanned anymore
+SCAN_MIN_VERSION = "0.8"
+# Space-separated minor versions to skip, e.g. "0.8"
+SCAN_IGNORED_VERSIONS = ""
 
 [tasks.build]
 description = "Build the provider binary"
@@ -114,4 +119,40 @@ cat tests/reports/go-e2e.json | go-test-report \
   -l tests/reports/go-modules.json \
   -o tests/reports/go-e2e.html \
   --title "terraform-provider-horizon-e2e" || true
+'''
+
+[tasks."scan:targets"]
+description = "List the latest release of each maintained version as a GitHub Actions matrix"
+usage = '''
+flag "--remote <remote>" help="Git remote to read tags from" default="origin"
+'''
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+versions=$(git ls-remote --tags --refs "${usage_remote:?}" \
+  | sed -n 's#.*refs/tags/v\{0,1\}\([0-9]*\.[0-9]*\.[0-9]*\)$#\1#p' \
+  | sort -uV)
+
+targets=$(
+  for minor in $(cut -d. -f1,2 <<<"$versions" | sort -uV); do
+    if [[ $(printf '%s\n' "${SCAN_MIN_VERSION:?}" "$minor" | sort -V | head -n 1) != "$SCAN_MIN_VERSION" ]]; then
+      continue
+    fi
+    if [[ " ${SCAN_IGNORED_VERSIONS:-} " == *" $minor "* ]]; then
+      echo "Skipping $minor: ignored" >&2
+      continue
+    fi
+
+    version=$(grep "^${minor//./\\.}\." <<<"$versions" | tail -n 1)
+    jq -nc --arg minor "$minor" --arg version "$version" '{minor: $minor, version: $version}'
+  done
+)
+
+if [[ -z $targets ]]; then
+  echo "No release found from version $SCAN_MIN_VERSION onwards." >&2
+  exit 1
+fi
+
+jq -sc '{include: .}' <<<"$targets"
 '''
