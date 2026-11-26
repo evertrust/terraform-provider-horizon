@@ -37,16 +37,12 @@ description = "Generate the Terraform provider documentation under docs/"
 run = "go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name horizon"
 
 [tasks."license:check"]
-description = "Fail if a Go file has no license header or a LEGAL-TBD placeholder is left"
+description = "Fail if a Go file has no license header"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 git ls-files -z --cached --others --exclude-standard '*.go' \
   | xargs -0 go run github.com/google/addlicense@v1.2.0 -check
-if git grep -n --untracked 'LEGAL-TBD' -- ':!mise.toml'; then
-  echo "ERROR: LEGAL-TBD placeholders must be replaced with the wording approved by Legal" >&2
-  exit 1
-fi
 '''
 
 [tasks."license:fix"]

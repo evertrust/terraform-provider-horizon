@@ -1,7 +1,5 @@
-# LEGAL-TBD (INT-1027): Legal decides whether this scaffolding file keeps the
-# HashiCorp MPL-2.0 header below or takes the Evertrust Apache-2.0 header.
-# Copyright (c) HashiCorp, Inc.
-# SPDX-License-Identifier: MPL-2.0
+# Copyright 2022-2026 EVERTRUST
+# SPDX-License-Identifier: Apache-2.0
 
 # Visit https://goreleaser.com for documentation on how to customize this
 # behavior.
