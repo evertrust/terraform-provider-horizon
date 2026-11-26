@@ -20,6 +20,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  license:
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
+    steps:
+      - name: Configure Runs-On
+        uses: runs-on/action@v2
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Install mise
+        uses: jdx/mise-action@v4
+      - name: Check license headers
+        run: mise run license:check
+
   test:
     runs-on: runs-on=${{ github.run_id }}/runner=evertrust
 

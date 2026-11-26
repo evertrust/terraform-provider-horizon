@@ -36,6 +36,24 @@ run = "go test ./..."
 description = "Generate the Terraform provider documentation under docs/"
 run = "go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name horizon"
 
+[tasks."license:check"]
+description = "Fail if a Go file has no license header"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+git ls-files -z --cached --others --exclude-standard '*.go' \
+  | xargs -0 go run github.com/google/addlicense@v1.2.0 -check
+'''
+
+[tasks."license:fix"]
+description = "Add the license header to Go files that do not have one"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+git ls-files -z --cached --others --exclude-standard '*.go' \
+  | xargs -0 go run github.com/google/addlicense@v1.2.0 -f .github/license-header.txt
+'''
+
 [tasks."test:report"]
 hide = true
 description = "Run unit tests and produce JUnit + HTML reports under tests/reports/"

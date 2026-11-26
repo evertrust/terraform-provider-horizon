@@ -50,4 +50,10 @@ the [Semantic Versioning](https://semver.org/) convention, starting with the let
 
 ## License
 
-[GNU GPL v3](./LICENSE)
+Starting with v0.9.0, this provider is licensed under the [Apache License 2.0](./LICENSE).
+See [NOTICE](./NOTICE) for the copyright notice.
+
+Versions up to and including v0.8.3 were released under the GNU General Public License v3.0
+and remain under that license.
+
+To contribute, see [CONTRIBUTING.md](./CONTRIBUTING.md).

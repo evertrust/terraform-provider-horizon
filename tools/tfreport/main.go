@@ -1,3 +1,6 @@
+// Copyright 2022-2026 EVERTRUST
+// SPDX-License-Identifier: Apache-2.0
+
 // tfreport converts the JUnit XML files written by `terraform test
 // -junit-xml=...` into a JSON stream compatible with `go test -json`.
 //

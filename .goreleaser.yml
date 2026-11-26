@@ -1,5 +1,5 @@
-# Copyright (c) HashiCorp, Inc.
-# SPDX-License-Identifier: MPL-2.0
+# Copyright 2022-2026 EVERTRUST
+# SPDX-License-Identifier: Apache-2.0
 
 # Visit https://goreleaser.com for documentation on how to customize this
 # behavior.
@@ -37,6 +37,13 @@ builds:
 archives:
 - format: zip
   name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+  # Setting files replaces the goreleaser defaults, so they are listed again
+  # alongside NOTICE (Apache-2.0 section 4d).
+  files:
+    - LICENSE*
+    - NOTICE*
+    - README*
+    - CHANGELOG*
 checksum:
   extra_files:
     - glob: 'terraform-registry-manifest.json'
