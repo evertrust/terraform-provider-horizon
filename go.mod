@@ -2,6 +2,8 @@ module github.com/evertrust/terraform-provider-horizon
 
 go 1.27.0
 
+toolchain go1.27.4
+
 require (
 	github.com/evertrust/horizon-go/v2 v2.10.3
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
@@ -122,7 +124,7 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20230809150735-7b3493d9a819 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
