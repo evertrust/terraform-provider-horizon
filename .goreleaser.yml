@@ -1,3 +1,5 @@
+# LEGAL-TBD (INT-1027): Legal decides whether this scaffolding file keeps the
+# HashiCorp MPL-2.0 header below or takes the Evertrust Apache-2.0 header.
 # Copyright (c) HashiCorp, Inc.
 # SPDX-License-Identifier: MPL-2.0
 
@@ -37,6 +39,13 @@ builds:
 archives:
 - format: zip
   name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+  # Setting files replaces the goreleaser defaults, so they are listed again
+  # alongside NOTICE (Apache-2.0 section 4d).
+  files:
+    - LICENSE*
+    - NOTICE*
+    - README*
+    - CHANGELOG*
 checksum:
   extra_files:
     - glob: 'terraform-registry-manifest.json'
